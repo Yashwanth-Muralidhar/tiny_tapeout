@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
 
-v3 fix: distinguish S_RXA from S_RXC. Both states report BUSY=0 in the
-current RTL, so the previous BUSY-only send_aux() could inject auxiliary
-bytes while the DUT was still waiting for ciphertext. This corrupted all
-clean MATCH tests even though the arithmetic reference tests passed.
+v4 fix: keep the original two-byte auxiliary handshake. After a ciphertext
+write, pulse_wr() waits through the UNP transition, so the pass-2 RTL is
+already in S_RXA when send_aux() starts. A BUSY-edge detector is not valid
+because the BUSY-high interval can occur entirely inside pulse_wr().
 
 Architecture-G/v7-compatible regression.
 
@@ -117,26 +117,15 @@ async def wait_ready(dut, limit=30000):
     raise AssertionError("Timeout waiting for ciphertext input state")
 
 
-async def wait_for_rxaux(dut, limit=3000):
-    """Wait specifically for the DUT's auxiliary-coefficient input state.
-
-    S_RXC and S_RXA both expose BUSY=0, so a plain BUSY check is ambiguous.
-    We require a BUSY-high interval followed by BUSY-low before sending aux.
-    """
-    seen_busy = False
-    for _ in range(limit):
-        await RisingEdge(dut.clk)
-        b = busy(dut)
-        if b:
-            seen_busy = True
-        elif seen_busy:
-            return
-    raise AssertionError("Timeout waiting for auxiliary coefficient input")
-
-
 async def send_aux(dut, coeff):
+    """Send the two-byte regenerated coefficient.
+
+    Do not wait on BUSY here. After pulse_wr() returns, the RTL has already
+    advanced from S_RXC through S_UNP/S_OUT into S_RXA for the pass-2 path.
+    Both S_RXC and S_RXA expose BUSY=0, so trying to infer S_RXA from BUSY
+    after the write can deadlock by missing the short BUSY-high interval.
+    """
     assert 0 <= coeff < Q
-    await wait_for_rxaux(dut)
     await pulse_wr(dut, coeff & 0xFF)
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
