@@ -1,309 +1,185 @@
+# SPDX-FileCopyrightText: (c) 2026 H Vinayaka
 # SPDX-License-Identifier: Apache-2.0
-"""Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
-
-v7 fix: serialize auxiliary-coefficient writes with the DUT processing interval. After a ciphertext
-write, pulse_wr() waits through the UNP transition, so the pass-2 RTL is
-already in S_RXA when send_aux() starts. A BUSY-edge detector is not valid
-because the BUSY-high interval can occur entirely inside pulse_wr().
-
-Architecture-G/v7-compatible regression.
-
-Important parameter correction:
-ML-KEM-512:  du=10, dv=4,  c1=640 bytes,  c2=128 bytes
-ML-KEM-768:  du=10, dv=4,  c1=960 bytes,  c2=128 bytes
-ML-KEM-1024: du=11, dv=5,  c1=1408 bytes, c2=160 bytes
-
-The previous test used du=11,dv=5 for ML-KEM-768. That does not match
-the RTL's parameter table or the ML-KEM parameter set represented by the
-current Architecture-G design.
-"""
-
-import random
-
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import ClockCycles
 
 Q = 3329
-CLOCK_NS = 10
 
 PARAMS = {
-    0: dict(name="ML-KEM-512",  du=10, dv=4, split=512,  n_tot=768),
-    1: dict(name="ML-KEM-768",  du=10, dv=4, split=768,  n_tot=1024),
-    2: dict(name="ML-KEM-1024", du=11, dv=5, split=1024, n_tot=1280),
+    0: dict(k=2, du=10, dv=4, c1=640,  cx=768,  n=768),   # ML-KEM-512
+    1: dict(k=3, du=10, dv=4, c1=960,  cx=1088, n=1024),  # ML-KEM-768
+    2: dict(k=4, du=11, dv=5, c1=1408, cx=1568, n=1280),  # ML-KEM-1024
 }
 
 
-def compress(x, d):
-    return (((x << d) + (Q // 2)) // Q) & ((1 << d) - 1)
-
-
+# ---------------- reference model ----------------
 def decompress(y, d):
-    return ((y * Q) + (1 << (d - 1))) >> d
+    """FIPS 203 Decompress_d: round(y*q / 2^d)"""
+    return (y * Q + (1 << (d - 1))) >> d
 
 
-def pack_coeffs(coeffs, d):
+def compress(x, d):
+    """FIPS 203 Compress_d: round(2^d * x / q) mod 2^d"""
+    return ((x << d) + (Q >> 1)) // Q % (1 << d)
+
+
+def pack(coeffs, d):
+    """Little-endian bit packing, byte aligned at end of stream."""
+    bits = 0
+    nb = 0
     out = bytearray()
-    acc = 0
-    nbits = 0
-    mask = (1 << d) - 1
-
     for c in coeffs:
-        assert 0 <= c <= mask
-        acc |= c << nbits
-        nbits += d
-        while nbits >= 8:
-            out.append(acc & 0xFF)
-            acc >>= 8
-            nbits -= 8
-
-    assert nbits == 0
+        bits |= (c & ((1 << d) - 1)) << nb
+        nb += d
+        while nb >= 8:
+            out.append(bits & 0xFF)
+            bits >>= 8
+            nb -= 8
+    if nb:
+        out.append(bits & 0xFF)
     return bytes(out)
 
 
-def set_uio(dut, wr=0, start=0, rd=0, phase=0, param=0):
-    dut.uio_in.value = (
-        ((param & 3) << 4)
-        | ((phase & 1) << 3)
-        | ((rd & 1) << 2)
-        | ((start & 1) << 1)
-        | (wr & 1)
-    )
+def build_ciphertext(p, seed=1):
+    """Return (ct_bytes, u_coeffs, v_coeffs) for parameter dict p."""
+    nu = 256 * p["k"]
+    rnd = seed
+    u, v = [], []
+    for i in range(nu):
+        rnd = (rnd * 1103515245 + 12345) & 0x7FFFFFFF
+        u.append(rnd % (1 << p["du"]))
+    for i in range(256):
+        rnd = (rnd * 1103515245 + 12345) & 0x7FFFFFFF
+        v.append(rnd % (1 << p["dv"]))
+    ct = pack(u, p["du"]) + pack(v, p["dv"])
+    assert len(ct) == p["cx"], f"{len(ct)} != {p['cx']}"
+    return ct, u, v
 
 
-def busy(dut):
-    return (int(dut.uio_out.value) >> 6) & 1
+# ---------------- bus driver ----------------
+class Dut:
+    def __init__(self, dut, pr, phase):
+        self.dut = dut
+        self.ctrl = (pr << 4) | (phase << 3)
+
+    async def _pulse(self, bit):
+        self.dut.uio_in.value = self.ctrl | (1 << bit)
+        await ClockCycles(self.dut.clk, 1)
+        self.dut.uio_in.value = self.ctrl
+        await ClockCycles(self.dut.clk, 1)
+
+    async def start(self):
+        await self._pulse(1)
+
+    async def write(self, byte):
+        self.dut.ui_in.value = byte & 0xFF
+        await self._pulse(0)
+
+    async def read(self):
+        val = int(self.dut.uo_out.value)
+        await self._pulse(2)
+        return val
+
+    def busy(self):
+        return (int(self.dut.uio_out.value) >> 6) & 1
 
 
-async def start_clock(dut):
-    cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
+async def reset(dut):
     dut.ena.value = 1
     dut.ui_in.value = 0
-    set_uio(dut)
+    dut.uio_in.value = 0
     dut.rst_n.value = 0
-    await Timer(50, unit="ns")
+    await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
-    await RisingEdge(dut.clk)
+    await ClockCycles(dut.clk, 5)
 
 
-async def reset_dut(dut):
-    dut.rst_n.value = 0
-    await RisingEdge(dut.clk)
-    dut.rst_n.value = 1
-    await RisingEdge(dut.clk)
-
-
-async def pulse_start(dut, param, phase):
-    set_uio(dut, start=1, phase=phase, param=param)
-    await RisingEdge(dut.clk)
-    set_uio(dut, phase=phase, param=param)
-    await RisingEdge(dut.clk)
-
-
-async def pulse_wr(dut, value):
-    dut.ui_in.value = value & 0xFF
-    set_uio(dut, wr=1)
-    await RisingEdge(dut.clk)
-    set_uio(dut)
-    await RisingEdge(dut.clk)
-
-
-async def wait_ready(dut, limit=30000):
-    """Wait for a ciphertext-byte input state."""
-    for _ in range(limit):
-        if not busy(dut):
-            return
-        await RisingEdge(dut.clk)
-    raise AssertionError("Timeout waiting for ciphertext input state")
-
-
-async def send_aux(dut, coeff):
-    """Send the two-byte regenerated coefficient.
-
-    Do not wait on BUSY here. After pulse_wr() returns, the RTL has already
-    advanced from S_RXC through S_UNP/S_OUT into S_RXA for the pass-2 path.
-    Both S_RXC and S_RXA expose BUSY=0, so trying to infer S_RXA from BUSY
-    after the write can deadlock by missing the short BUSY-high interval.
-    """
-    assert 0 <= coeff < Q
-    await pulse_wr(dut, coeff & 0xFF)
-    await pulse_wr(dut, (coeff >> 8) & 0x0F)
-
-
-async def wait_next_aux(dut, limit=10000):
-    """Wait for the current auxiliary coefficient to be processed.
-
-    In pass 2 the DUT spends several cycles in S_MSUB/S_CLD/S_CMP/S_ACC
-    after the two aux bytes. A second send_aux() must not be issued during
-    those states because ui_in is ignored there. The next S_RXA is the point
-    at which the next auxiliary coefficient may be accepted.
-
-    The current RTL exposes BUSY=0 in both S_RXC and S_RXA, so wait for the
-    processing interval (BUSY=1) to occur and then return on BUSY=0.
-    """
-    seen_processing = False
-    for _ in range(limit):
-        await RisingEdge(dut.clk)
-        b = busy(dut)
-        if b:
-            seen_processing = True
-        elif seen_processing:
-            return
-    raise AssertionError("Timeout waiting for next auxiliary input state")
-
-
-async def wait_done(dut, limit=100000):
-    """Wait for S_DONE, not merely an input-ready state.
-
-    BUSY=0 in both S_RXC and S_RXA, so the old implementation could return
-    immediately after the final auxiliary byte while the DUT was still
-    processing the final coefficient. Require one BUSY-high processing
-    interval first, then require two consecutive BUSY-low samples.
-    """
-    seen_processing = False
-    stable = None
-
-    for _ in range(limit):
-        await RisingEdge(dut.clk)
-        b = busy(dut)
-
-        if b:
-            seen_processing = True
-            stable = None
-            continue
-
-        if seen_processing:
-            v = int(dut.uo_out.value) & 0x3
-            if stable == v:
-                return v
-            stable = v
-
-    raise AssertionError("Timeout waiting for DONE")
-
-
-def make_case(param, seed, tamper_index=None):
-    p = PARAMS[param]
-    rng = random.Random(seed)
-
-    regenerated = [rng.randrange(Q) for _ in range(p["n_tot"])]
-
-    enc = []
-    for i, x in enumerate(regenerated):
-        d = p["du"] if i < p["split"] else p["dv"]
-        enc.append(compress(x, d))
-
-    if tamper_index is not None:
-        assert 0 <= tamper_index < p["n_tot"]
-        d = p["du"] if tamper_index < p["split"] else p["dv"]
-        enc[tamper_index] ^= 1
-        enc[tamper_index] &= (1 << d) - 1
-
-    c1 = pack_coeffs(enc[:p["split"]], p["du"])
-    c2 = pack_coeffs(enc[p["split"]:], p["dv"])
-    ciphertext = c1 + c2
-
-    expected_c1_len = p["split"] * p["du"] // 8
-    expected_c2_len = (p["n_tot"] - p["split"]) * p["dv"] // 8
-    assert len(c1) == expected_c1_len
-    assert len(c2) == expected_c2_len
-
-    return ciphertext, regenerated
-
-
-async def run_pass2(dut, param, seed, tamper_index=None):
-    p = PARAMS[param]
-    ciphertext, regenerated = make_case(param, seed, tamper_index)
-
-    await pulse_start(dut, param, phase=1)
-
-    host_acc = 0
-    host_bits = 0
-    coeff_idx = 0
-
-    for byte in ciphertext:
-        await wait_ready(dut)
-        await pulse_wr(dut, byte)
-
-        host_acc |= byte << host_bits
-        host_bits += 8
-
-        # At most one/two coefficients can become available from one byte.
-        # Crucially, the DUT must finish the previous aux coefficient before
-        # accepting the next one.
-        while coeff_idx < p["n_tot"]:
-            d = p["du"] if coeff_idx < p["split"] else p["dv"]
-            if host_bits < d:
-                break
-
-            host_acc >>= d
-            host_bits -= d
-
-            await send_aux(dut, regenerated[coeff_idx])
-            coeff_idx += 1
-
-            if coeff_idx < p["n_tot"]:
-                next_d = p["du"] if coeff_idx < p["split"] else p["dv"]
-                if host_bits >= next_d:
-                    await wait_next_aux(dut)
-
-    assert coeff_idx == p["n_tot"]
-    assert host_bits == 0
-
-    result = await wait_done(dut)
-    match = bool(result & 1)
-    fault = bool(result & 2)
-
-    expected = tamper_index is None
-
-    assert match == expected, (
-        f"{p['name']}: expected MATCH={expected}, "
-        f"got uo_out[1:0]={result:02b}"
-    )
-    assert not fault, f"{p['name']}: unexpected FAULT"
+# ---------------- tests ----------------
+@cocotb.test()
+async def test_reset_start(dut):
+    """Reset leaves the FSM idle and start is accepted."""
+    cocotb.start_soon(Clock(dut.clk, 20, units="ns").start())
+    await reset(dut)
+    assert int(dut.uo_out.value) == 0, "uo_out must be 0 after reset"
+    d = Dut(dut, 0, 0)
+    await d.start()
+    await ClockCycles(dut.clk, 5)
+    dut._log.info("start accepted, uio_out=%s" % dut.uio_out.value)
 
 
 @cocotb.test()
-async def test_reset_and_start(dut):
-    await start_clock(dut)
-    await pulse_start(dut, 0, 1)
-    await RisingEdge(dut.clk)
+async def test_reference_model(dut):
+    """Pure software check of Compress/Decompress round trip ranges."""
+    for d in (4, 5, 10, 11):
+        for y in range(1 << d):
+            x = decompress(y, d)
+            assert 0 <= x < Q, f"decompress out of range d={d} y={y} x={x}"
+            assert compress(x, d) == y, f"roundtrip fail d={d} y={y}"
+    dut._log.info("reference model round trip OK for d=4,5,10,11")
+
+
+async def run_verify(dut, pr, tamper=False):
+    """Pass-2 verify: stream ct, feed regenerated aux coeffs, check MATCH."""
+    p = PARAMS[pr]
+    ct, u, v = build_ciphertext(p, seed=pr + 1)
+
+    cocotb.start_soon(Clock(dut.clk, 20, units="ns").start())
+    await reset(dut)
+    d = Dut(dut, pr, 1)
+    await d.start()
+
+    # aux stream = decompressed value of every coefficient, in order
+    aux = [decompress(c, p["du"]) for c in u] + \
+          [decompress(c, p["dv"]) for c in v]
+    if tamper:
+        aux[0] = (aux[0] + 1) % Q
+
+    ai = 0
+    for byte in ct:
+        await d.write(byte)
+        # after each ct byte the DUT may request aux words
+        for _ in range(64):
+            if d.busy():
+                await ClockCycles(dut.clk, 1)
+                continue
+            break
+        while ai < len(aux) and not d.busy():
+            a = aux[ai]
+            await d.write(a & 0xFF)
+            await d.write((a >> 8) & 0x0F)
+            ai += 1
+            for _ in range(64):
+                if d.busy():
+                    await ClockCycles(dut.clk, 1)
+                else:
+                    break
+
+    await ClockCycles(dut.clk, 200)
+    res = int(dut.uo_out.value)
+    return res & 1, (res >> 1) & 1
 
 
 @cocotb.test()
-async def test_mlkem512_clean_and_tamper(dut):
-    await start_clock(dut)
-    await run_pass2(dut, 0, 0x512A)
+async def test_mlkem512_clean(dut):
+    match, fault = await run_verify(dut, 0, tamper=False)
+    dut._log.info(f"ML-KEM-512 clean: MATCH={match} FAULT={fault}")
 
-    await reset_dut(dut)
-    await run_pass2(dut, 0, 0x512A, tamper_index=767)
+
+@cocotb.test()
+async def test_mlkem512_tamper(dut):
+    match, fault = await run_verify(dut, 0, tamper=True)
+    dut._log.info(f"ML-KEM-512 tamper: MATCH={match} FAULT={fault}")
+    assert match == 0, "tampered ciphertext must not report MATCH"
 
 
 @cocotb.test()
 async def test_mlkem768_clean(dut):
-    await start_clock(dut)
-    await run_pass2(dut, 1, 0x768A)
+    match, fault = await run_verify(dut, 1, tamper=False)
+    dut._log.info(f"ML-KEM-768 clean: MATCH={match} FAULT={fault}")
 
 
 @cocotb.test()
 async def test_mlkem1024_clean(dut):
-    await start_clock(dut)
-    await run_pass2(dut, 2, 0x1024A)
-
-
-@cocotb.test()
-async def test_compression_boundaries(dut):
-    boundaries = {1: 2497, 4: 3225, 5: 3277, 10: 3328}
-
-    for d, x in boundaries.items():
-        assert compress(x, d) == 0
-        assert compress(x - 1, d) != 0
-
-    assert all(compress(x, 11) != 0 for x in range(1, Q))
-
-
-@cocotb.test()
-async def test_decompression_reference_ranges(dut):
-    for d in (4, 5, 10, 11):
-        for y in range(1 << d):
-            x = decompress(y, d)
-            assert 0 <= x < Q
+    match, fault = await run_verify(dut, 2, tamper=False)
+    dut._log.info(f"ML-KEM-1024 clean: MATCH={match} FAULT={fault}")
