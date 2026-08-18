@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
 
+v3 fix: distinguish S_RXA from S_RXC. Both states report BUSY=0 in the
+current RTL, so the previous BUSY-only send_aux() could inject auxiliary
+bytes while the DUT was still waiting for ciphertext. This corrupted all
+clean MATCH tests even though the arithmetic reference tests passed.
+
 Architecture-G/v7-compatible regression.
 
 Important parameter correction:
@@ -104,17 +109,34 @@ async def pulse_wr(dut, value):
 
 
 async def wait_ready(dut, limit=30000):
-    """S_RXC and S_RXA both intentionally report BUSY=0."""
+    """Wait for a ciphertext-byte input state."""
     for _ in range(limit):
         if not busy(dut):
             return
         await RisingEdge(dut.clk)
-    raise AssertionError("Timeout waiting for DUT input-ready state")
+    raise AssertionError("Timeout waiting for ciphertext input state")
+
+
+async def wait_for_rxaux(dut, limit=3000):
+    """Wait specifically for the DUT's auxiliary-coefficient input state.
+
+    S_RXC and S_RXA both expose BUSY=0, so a plain BUSY check is ambiguous.
+    We require a BUSY-high interval followed by BUSY-low before sending aux.
+    """
+    seen_busy = False
+    for _ in range(limit):
+        await RisingEdge(dut.clk)
+        b = busy(dut)
+        if b:
+            seen_busy = True
+        elif seen_busy:
+            return
+    raise AssertionError("Timeout waiting for auxiliary coefficient input")
 
 
 async def send_aux(dut, coeff):
     assert 0 <= coeff < Q
-    await wait_ready(dut)
+    await wait_for_rxaux(dut)
     await pulse_wr(dut, coeff & 0xFF)
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
