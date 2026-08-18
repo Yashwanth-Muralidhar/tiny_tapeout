@@ -89,7 +89,7 @@ module tt_um_vinayaka_pqc_fo (
   reg [3:0]  bitk;
   reg [11:0] cfull;
 
-  reg [11:0] diff;
+  reg        mism;
   reg [15:0] out_reg;
   reg [1:0]  out_cnt;
 
@@ -222,7 +222,7 @@ module tt_um_vinayaka_pqc_fo (
       bitk      <= 0;
       cfull     <= 0;
 
-      diff      <= 0;
+      mism      <= 1'b0;
 
       out_reg   <= 0;
       out_cnt   <= 0;
@@ -257,7 +257,7 @@ module tt_um_vinayaka_pqc_fo (
         byte_cnt  <= 0;
         coef_cnt  <= 0;
 
-        diff      <= 0;
+        mism      <= 1'b0;
         fault     <= 0;
         match_r   <= 0;
 
@@ -421,8 +421,8 @@ module tt_um_vinayaka_pqc_fo (
                * so the intentional testbench tamper is detected.
                */
 
-              diff <=
-                  diff | (aux ^ dres);
+              mism <=
+                  mism | (aux != dres);
 
               coef_cnt <=
                   coef_cnt + 12'd1;
@@ -644,7 +644,7 @@ module tt_um_vinayaka_pqc_fo (
                 (coef_cnt != n_tot);
 
             match_r <=
-                (diff == 0) &&
+                (!mism) &&
                 (coef_cnt == n_tot);
 
             st <= S_DONE;
