@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
 
-v5 fix: start exactly one clock coroutine for the entire regression; keep the original two-byte auxiliary handshake. After a ciphertext
+v4 fix: keep the original two-byte auxiliary handshake. After a ciphertext
 write, pulse_wr() waits through the UNP transition, so the pass-2 RTL is
 already in S_RXA when send_aux() starts. A BUSY-edge detector is not valid
 because the BUSY-high interval can occur entirely inside pulse_wr().
@@ -75,21 +75,8 @@ def busy(dut):
     return (int(dut.uio_out.value) >> 6) & 1
 
 
-_clock_started = False
-
-
 async def start_clock(dut):
-    global _clock_started
-
-    # IMPORTANT: cocotb tests run sequentially in the same simulator.
-    # Starting a new Clock() in every test leaves the old clock coroutine
-    # running. The second test would therefore drive two clocks, the third
-    # three clocks, etc. That can corrupt every sequential DUT after the
-    # first test. Start exactly one clock for the entire regression.
-    if not _clock_started:
-        cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
-        _clock_started = True
-
+    cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
     dut.ena.value = 1
     dut.ui_in.value = 0
     set_uio(dut)
@@ -144,16 +131,31 @@ async def send_aux(dut, coeff):
 
 
 async def wait_done(dut, limit=100000):
+    """Wait for S_DONE, not merely an input-ready state.
+
+    BUSY=0 in both S_RXC and S_RXA, so the old implementation could return
+    immediately after the final auxiliary byte while the DUT was still
+    processing the final coefficient. Require one BUSY-high processing
+    interval first, then require two consecutive BUSY-low samples.
+    """
+    seen_processing = False
     stable = None
+
     for _ in range(limit):
         await RisingEdge(dut.clk)
-        if not busy(dut):
+        b = busy(dut)
+
+        if b:
+            seen_processing = True
+            stable = None
+            continue
+
+        if seen_processing:
             v = int(dut.uo_out.value) & 0x3
             if stable == v:
                 return v
             stable = v
-        else:
-            stable = None
+
     raise AssertionError("Timeout waiting for DONE")
 
 
