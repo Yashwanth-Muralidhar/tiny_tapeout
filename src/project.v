@@ -244,7 +244,6 @@ module tt_um_vinayaka_pqc_fo (
       match_r   <= 0;
       in_c2     <= 0;
 
-      verify_scan <= 0;
 
     end else begin
 
