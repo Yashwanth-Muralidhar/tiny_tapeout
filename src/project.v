@@ -89,7 +89,6 @@ module tt_um_vinayaka_pqc_fo (
   reg [12:0] cfull;
 
   reg [11:0] diff;
-  reg [11:0] verify_aux;
   reg [15:0] out_reg;
   reg [1:0]  out_cnt;
 
@@ -185,26 +184,6 @@ module tt_um_vinayaka_pqc_fo (
    * This makes the testbench's intentional AUX+1 tamper detectable.
    * ------------------------------------------------------------- */
 
-  reg [11:0] verify_scan;
-
-  always @(*) begin
-    case (dunp)
-
-      4'd4:
-        verify_scan = {ycoef[3:0], 8'd0};
-
-      4'd5:
-        verify_scan = {ycoef[4:0], 7'd0};
-
-      4'd10:
-        verify_scan = {ycoef[9:0], 2'd0};
-
-      default:
-        verify_scan = {ycoef[10:0], 1'd0};
-
-    endcase
-  end
-
   /* -------------------------------------------------------------
    * Pass-1 compression datapath
    * ------------------------------------------------------------- */
@@ -252,7 +231,6 @@ module tt_um_vinayaka_pqc_fo (
       cfull     <= 0;
 
       diff      <= 0;
-      verify_aux <= 0;
 
       out_reg   <= 0;
       out_cnt   <= 0;
@@ -289,7 +267,6 @@ module tt_um_vinayaka_pqc_fo (
         coef_cnt  <= 0;
 
         diff      <= 0;
-        verify_aux <= 0;
         fault     <= 0;
         match_r   <= 0;
 
@@ -454,7 +431,7 @@ module tt_um_vinayaka_pqc_fo (
                */
 
               diff <=
-                  diff | (verify_aux ^ dres);
+                  diff | (aux ^ dres);
 
               coef_cnt <=
                   coef_cnt + 12'd1;
@@ -502,7 +479,6 @@ module tt_um_vinayaka_pqc_fo (
               end else begin
 
                 aux[11:8] <= ui_in[3:0];
-                verify_aux <= {ui_in[3:0], aux[7:0]};
                 aux_hi <= 0;
 
                 if (phase) begin
@@ -510,16 +486,24 @@ module tt_um_vinayaka_pqc_fo (
                   /*
                    * Pass-2 verification:
                    *
-                   * Latch the complete 12-bit auxiliary word and
-                   * run Decompress_d(ycoef). S_OUT compares the
-                   * exact decompressed ciphertext coefficient
-                   * against this latched auxiliary value.
+                   * The auxiliary value has now been completely
+                   * received. Run the existing decompression
+                   * engine on ycoef and compare the result with
+                   * aux in S_OUT.
                    */
 
                   acc  <= 0;
-                  scan <= verify_scan;
-                  bitk <= 0;
 
+                  // Decompress ycoef using the same left-aligned
+                  // representation used by the normal S_DEC path.
+                  case (dunp)
+                    4'd4:    scan <= {ycoef[3:0],  8'd0};
+                    4'd5:    scan <= {ycoef[4:0],  7'd0};
+                    4'd10:   scan <= {ycoef[9:0],  2'd0};
+                    default: scan <= {ycoef[10:0], 1'd0};
+                  endcase
+
+                  bitk <= 0;
                   st <= S_DEC;
 
                 end else begin
@@ -595,9 +579,9 @@ module tt_um_vinayaka_pqc_fo (
             if (phase) begin
 
               /*
-               * Pass-2 verification is completed in S_OUT.
-               * This branch should not be reached in normal
-               * phase-1 operation.
+               * Normal phase-1 verification completes in S_OUT.
+               * This branch is not used by the corrected phase-1
+               * path, but is kept as a safe FSM fallback.
                */
               st <= S_UNP;
 
