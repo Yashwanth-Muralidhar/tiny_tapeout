@@ -1,42 +1,24 @@
-![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
+# Compact Fault-Aware FO Verification for ML-KEM
 
-# Tiny Tapeout Verilog Project Template
+Tiny Tapeout project implementing a compact, constant-latency, divider-free hardware block for the FO verification back-end of ML-KEM decapsulation.
 
-- [Read the documentation for project](docs/info.md)
+## Repository layout
 
-## What is Tiny Tapeout?
+- `src/project.v` — Tiny Tapeout top-level RTL (`tt_um_vinayaka_pqc_fo`)
+- `test/` — cocotb verification
+- `docs/info.md` — project datasheet text
+- `info.yaml` — Tiny Tapeout project metadata
 
-Tiny Tapeout is an educational project that aims to make it easier and cheaper than ever to get your digital and analog designs manufactured on a real chip.
+## Design scope
 
-To learn more and get started, visit https://tinytapeout.com.
+This is not a full ML-KEM implementation. Keccak/SHAKE, complete re-encryption and the NTT are outside this tile.
 
-## Set up your Verilog project
+The hardware focuses on the FO verification back-end: coefficient decoding/decompression, modular processing, constant-time compression/comparison, and parameter-derived fault detection.
 
-1. Add your Verilog files to the `src` folder.
-2. Edit the [info.yaml](info.yaml) and update information about your project, paying special attention to the `source_files` and `top_module` properties. If you are upgrading an existing Tiny Tapeout project, check out our [online info.yaml migration tool](https://tinytapeout.github.io/tt-yaml-upgrade-tool/).
-3. Edit [docs/info.md](docs/info.md) and add a description of your project.
-4. Adapt the testbench to your design. See [test/README.md](test/README.md) for more information.
+## Current development target
 
-The GitHub action will automatically build the ASIC files using [LibreLane](https://www.zerotoasiccourse.com/terminology/librelane/).
+The current Architecture-G RTL is the physical optimization baseline. The final target is a sub-1000-gate, six-functional-pin, clock-to-clock implementation with clean STA, max-cap/max-slew, DRC and LVS.
 
-## Enable GitHub actions to build the results page
+## License
 
-- [Enabling GitHub Pages](https://tinytapeout.com/faq/#my-github-action-is-failing-on-the-pages-part)
-
-## Resources
-
-- [FAQ](https://tinytapeout.com/faq/)
-- [Digital design lessons](https://tinytapeout.com/digital_design/)
-- [Learn how semiconductors work](https://tinytapeout.com/siliwiz/)
-- [Join the community](https://tinytapeout.com/discord)
-- [Build your design locally](https://www.tinytapeout.com/guides/local-hardening/)
-
-## What next?
-
-- [Submit your design to the next shuttle](https://app.tinytapeout.com/).
-- Edit [this README](README.md) and explain your design, how it works, and how to test it.
-- Share your project on your social network of choice:
-  - LinkedIn [#tinytapeout](https://www.linkedin.com/search/results/content/?keywords=%23tinytapeout) [@TinyTapeout](https://www.linkedin.com/company/100708654/)
-  - Mastodon [#tinytapeout](https://chaos.social/tags/tinytapeout) [@matthewvenn](https://chaos.social/@matthewvenn)
-  - X (formerly Twitter) [#tinytapeout](https://twitter.com/hashtag/tinytapeout) [@tinytapeout](https://twitter.com/tinytapeout)
-  - Bluesky [@tinytapeout.com](https://bsky.app/profile/tinytapeout.com)
+Apache-2.0
