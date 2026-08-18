@@ -26,6 +26,7 @@
  *      using aux_hi as the final rounding-bit latch; removes cfull storage.
  *  16) Replace the 12-bit output staging register with an 8-bit low-byte
  *      register plus direct high-nibble/message-byte selection.
+ *  17) Keep S_RXA BUSY=1 so the host cannot confuse auxiliary input with S_RXC.
  *
  * No general multiplier, divider, shifted copy of q, or ciphertext memory.
  * Latency remains determined only by the public ML-KEM parameter and stream
@@ -287,7 +288,7 @@ module tt_um_vinayaka_pqc_fo (
                         end else begin
                             if (byte_cnt == c1_len) begin
                                 in_c2 <= 1'b1;
-                                buf_r <= 16'd0;
+                                buf_r <= 18'd0;
                                 nbits <= 5'd0;
                             end
                             st <= S_RXC;
@@ -444,8 +445,12 @@ module tt_um_vinayaka_pqc_fo (
     // ------------------------------------------------------------------------
     // Status / outputs
     // ------------------------------------------------------------------------
+    // BUSY=0 means the external host may send a ciphertext byte.
+    // S_RXA is deliberately BUSY=1: it is an internal auxiliary-data
+    // rendezvous and must not be mistaken for S_RXC by the host.
+    // S_IDLE/S_DONE remain not-busy for the external status interface.
     wire busy = !(st == S_IDLE || st == S_DONE || st == S_RXC ||
-                  st == S_RXA || (st == S_ACC2 && out_cnt != 0));
+                  (st == S_ACC2 && out_cnt != 0));
     wire out_valid = (st == S_ACC2) && (out_cnt != 0);
 
     // Keep unused datapath storage electrically quiet before the first START.
