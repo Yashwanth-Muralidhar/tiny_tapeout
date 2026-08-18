@@ -89,6 +89,7 @@ module tt_um_vinayaka_pqc_fo (
   reg [12:0] cfull;
 
   reg [11:0] diff;
+  reg [11:0] verify_aux;
   reg [15:0] out_reg;
   reg [1:0]  out_cnt;
 
@@ -251,6 +252,7 @@ module tt_um_vinayaka_pqc_fo (
       cfull     <= 0;
 
       diff      <= 0;
+      verify_aux <= 0;
 
       out_reg   <= 0;
       out_cnt   <= 0;
@@ -287,6 +289,7 @@ module tt_um_vinayaka_pqc_fo (
         coef_cnt  <= 0;
 
         diff      <= 0;
+        verify_aux <= 0;
         fault     <= 0;
         match_r   <= 0;
 
@@ -451,7 +454,7 @@ module tt_um_vinayaka_pqc_fo (
                */
 
               diff <=
-                  diff | (aux ^ dres);
+                  diff | (verify_aux ^ dres);
 
               coef_cnt <=
                   coef_cnt + 12'd1;
@@ -499,6 +502,7 @@ module tt_um_vinayaka_pqc_fo (
               end else begin
 
                 aux[11:8] <= ui_in[3:0];
+                verify_aux <= {ui_in[3:0], aux[7:0]};
                 aux_hi <= 0;
 
                 if (phase) begin
@@ -506,10 +510,10 @@ module tt_um_vinayaka_pqc_fo (
                   /*
                    * Pass-2 verification:
                    *
-                   * The auxiliary value has now been completely
-                   * received. Run the existing decompression
-                   * engine on ycoef and compare the result with
-                   * aux in S_OUT.
+                   * Latch the complete 12-bit auxiliary word and
+                   * run Decompress_d(ycoef). S_OUT compares the
+                   * exact decompressed ciphertext coefficient
+                   * against this latched auxiliary value.
                    */
 
                   acc  <= 0;
@@ -591,17 +595,10 @@ module tt_um_vinayaka_pqc_fo (
             if (phase) begin
 
               /*
-               * This branch is retained for FSM compatibility.
-               *
-               * Pass-2 now performs the actual comparison in
-               * S_OUT immediately after Decompress_d(ycoef).
+               * Pass-2 verification is completed in S_OUT.
+               * This branch should not be reached in normal
+               * phase-1 operation.
                */
-              diff <=
-                  diff | (ycoef ^ cval);
-
-              coef_cnt <=
-                  coef_cnt + 12'd1;
-
               st <= S_UNP;
 
             end else if (in_c2) begin
