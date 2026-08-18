@@ -1,34 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
 
-Current Architecture-G/v7 interface:
-  ui_in[7:0] : input byte stream
-  uio_in[0]  : WR
-  uio_in[1]  : START
-  uio_in[2]  : RD
-  uio_in[3]  : PHASE (0=pass1, 1=pass2)
-  uio_in[5:4]: parameter (00=512, 01=768, 10=1024)
-  uio_out[6] : BUSY
-  uio_out[7] : FAULT
-  uo_out[0]  : MATCH in DONE
-  uo_out[1]  : FAULT in DONE
+Architecture-G/v7-compatible regression.
 
-Important fix vs the previous test:
-S_RXC and S_RXA both drive BUSY=0, so a BUSY high->low transition cannot
-be used to detect S_RXA. The host mirrors the unpacker and decides whether
-the next action is a ciphertext byte or a 12-bit auxiliary coefficient.
+Important parameter correction:
+ML-KEM-512:  du=10, dv=4,  c1=640 bytes,  c2=128 bytes
+ML-KEM-768:  du=10, dv=4,  c1=960 bytes,  c2=128 bytes
+ML-KEM-1024: du=11, dv=5,  c1=1408 bytes, c2=160 bytes
+
+The previous test used du=11,dv=5 for ML-KEM-768. That does not match
+the RTL's parameter table or the ML-KEM parameter set represented by the
+current Architecture-G design.
 """
 
 import random
+
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
 Q = 3329
 CLOCK_NS = 10
+
 PARAMS = {
-    0: dict(name="ML-KEM-512", du=10, dv=4, split=512, n_tot=768),
-    1: dict(name="ML-KEM-768", du=11, dv=5, split=768, n_tot=1024),
+    0: dict(name="ML-KEM-512",  du=10, dv=4, split=512,  n_tot=768),
+    1: dict(name="ML-KEM-768",  du=10, dv=4, split=768,  n_tot=1024),
     2: dict(name="ML-KEM-1024", du=11, dv=5, split=1024, n_tot=1280),
 }
 
@@ -46,14 +42,16 @@ def pack_coeffs(coeffs, d):
     acc = 0
     nbits = 0
     mask = (1 << d) - 1
+
     for c in coeffs:
         assert 0 <= c <= mask
         acc |= c << nbits
         nbits += d
         while nbits >= 8:
-            out.append(acc & 0xff)
+            out.append(acc & 0xFF)
             acc >>= 8
             nbits -= 8
+
     assert nbits == 0
     return bytes(out)
 
@@ -98,7 +96,7 @@ async def pulse_start(dut, param, phase):
 
 
 async def pulse_wr(dut, value):
-    dut.ui_in.value = value & 0xff
+    dut.ui_in.value = value & 0xFF
     set_uio(dut, wr=1)
     await RisingEdge(dut.clk)
     set_uio(dut)
@@ -106,7 +104,7 @@ async def pulse_wr(dut, value):
 
 
 async def wait_ready(dut, limit=30000):
-    """Wait for either S_RXC or S_RXA (both intentionally report BUSY=0)."""
+    """S_RXC and S_RXA both intentionally report BUSY=0."""
     for _ in range(limit):
         if not busy(dut):
             return
@@ -117,8 +115,8 @@ async def wait_ready(dut, limit=30000):
 async def send_aux(dut, coeff):
     assert 0 <= coeff < Q
     await wait_ready(dut)
-    await pulse_wr(dut, coeff & 0xff)
-    await pulse_wr(dut, (coeff >> 8) & 0x0f)
+    await pulse_wr(dut, coeff & 0xFF)
+    await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
 
 async def wait_done(dut, limit=100000):
@@ -138,17 +136,30 @@ async def wait_done(dut, limit=100000):
 def make_case(param, seed, tamper_index=None):
     p = PARAMS[param]
     rng = random.Random(seed)
+
     regenerated = [rng.randrange(Q) for _ in range(p["n_tot"])]
+
     enc = []
     for i, x in enumerate(regenerated):
         d = p["du"] if i < p["split"] else p["dv"]
         enc.append(compress(x, d))
+
     if tamper_index is not None:
+        assert 0 <= tamper_index < p["n_tot"]
         d = p["du"] if tamper_index < p["split"] else p["dv"]
         enc[tamper_index] ^= 1
         enc[tamper_index] &= (1 << d) - 1
-    c = pack_coeffs(enc[:p["split"]], p["du"]) + pack_coeffs(enc[p["split"]:], p["dv"])
-    return c, regenerated
+
+    c1 = pack_coeffs(enc[:p["split"]], p["du"])
+    c2 = pack_coeffs(enc[p["split"]:], p["dv"])
+    ciphertext = c1 + c2
+
+    expected_c1_len = p["split"] * p["du"] // 8
+    expected_c2_len = (p["n_tot"] - p["split"]) * p["dv"] // 8
+    assert len(c1) == expected_c1_len
+    assert len(c2) == expected_c2_len
+
+    return ciphertext, regenerated
 
 
 async def run_pass2(dut, param, seed, tamper_index=None):
@@ -162,12 +173,12 @@ async def run_pass2(dut, param, seed, tamper_index=None):
     coeff_idx = 0
 
     for byte in ciphertext:
-        # At this point no complete coefficient should require another byte
-        # before the next ciphertext byte. If one is complete, service it first.
+        # Service coefficients already complete before accepting another byte.
         while coeff_idx < p["n_tot"]:
             d = p["du"] if coeff_idx < p["split"] else p["dv"]
             if host_bits < d:
                 break
+
             host_acc >>= d
             host_bits -= d
             await send_aux(dut, regenerated[coeff_idx])
@@ -175,14 +186,16 @@ async def run_pass2(dut, param, seed, tamper_index=None):
 
         await wait_ready(dut)
         await pulse_wr(dut, byte)
+
         host_acc |= byte << host_bits
         host_bits += 8
 
-        # Service all coefficients completed by this byte before sending the next byte.
+        # Service all coefficients completed by this byte.
         while coeff_idx < p["n_tot"]:
             d = p["du"] if coeff_idx < p["split"] else p["dv"]
             if host_bits < d:
                 break
+
             host_acc >>= d
             host_bits -= d
             await send_aux(dut, regenerated[coeff_idx])
@@ -194,9 +207,12 @@ async def run_pass2(dut, param, seed, tamper_index=None):
     result = await wait_done(dut)
     match = bool(result & 1)
     fault = bool(result & 2)
+
     expected = tamper_index is None
+
     assert match == expected, (
-        f"{p['name']}: expected MATCH={expected}, got uo_out[1:0]={result:02b}"
+        f"{p['name']}: expected MATCH={expected}, "
+        f"got uo_out[1:0]={result:02b}"
     )
     assert not fault, f"{p['name']}: unexpected FAULT"
 
@@ -212,6 +228,7 @@ async def test_reset_and_start(dut):
 async def test_mlkem512_clean_and_tamper(dut):
     await start_clock(dut)
     await run_pass2(dut, 0, 0x512A)
+
     await reset_dut(dut)
     await run_pass2(dut, 0, 0x512A, tamper_index=767)
 
@@ -231,9 +248,11 @@ async def test_mlkem1024_clean(dut):
 @cocotb.test()
 async def test_compression_boundaries(dut):
     boundaries = {1: 2497, 4: 3225, 5: 3277, 10: 3328}
+
     for d, x in boundaries.items():
         assert compress(x, d) == 0
         assert compress(x - 1, d) != 0
+
     assert all(compress(x, 11) != 0 for x in range(1, Q))
 
 
