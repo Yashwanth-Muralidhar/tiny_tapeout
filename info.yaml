@@ -3,7 +3,7 @@ project:
   title:        "Compact Fault-Aware FO Verification for ML-KEM"
   author:       "Yashwanth Muralidhar"
   discord:      ""
-  description:  "A compact, constant-latency, divider-free FO verification datapath for ML-KEM decapsulation."
+  description:  "Compact, constant-latency, divider-free FO verification datapath for ML-KEM decapsulation."
   language:     "Verilog"
   clock_hz:     40000000
   tiles: "1x2"
@@ -11,11 +11,7 @@ project:
   source_files:
     - "project.v"
 
-# Current Architecture-G baseline pinout.
-# The final six-functional-pin interface is a separate optimization target and
-# should not be claimed as implemented until that RTL is frozen and verified.
 pinout:
-  # Dedicated inputs
   ui[0]: "DATA_IN[0]"
   ui[1]: "DATA_IN[1]"
   ui[2]: "DATA_IN[2]"
@@ -25,17 +21,15 @@ pinout:
   ui[6]: "DATA_IN[6]"
   ui[7]: "DATA_IN[7]"
 
-  # Dedicated outputs
-  uo[0]: "DATA_OUT[0]"
-  uo[1]: "DATA_OUT[1]"
+  uo[0]: "MATCH"
+  uo[1]: "FAULT"
   uo[2]: "DATA_OUT[2]"
   uo[3]: "DATA_OUT[3]"
   uo[4]: "DATA_OUT[4]"
   uo[5]: "DATA_OUT[5]"
-  uo[6]: "MATCH"
-  uo[7]: "FAULT"
+  uo[6]: "DATA_OUT[6]"
+  uo[7]: "DATA_OUT[7]"
 
-  # Bidirectional pins
   uio[0]: "WR"
   uio[1]: "START"
   uio[2]: "RD"
