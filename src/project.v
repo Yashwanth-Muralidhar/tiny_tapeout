@@ -3,7 +3,7 @@
 /*
  * Parameter-agile, divider-free FO backend for ML-KEM decapsulation.
  *
- * Architecture-G Optimized v7 (8-bit I/O preserved; six-pin redesign still separate).
+ * Architecture-G Cell-Reduced v8 (8-bit I/O preserved; six-pin redesign still separate).
  *
  * Functional architecture is intentionally unchanged from the verified
  * Architecture-G reference. Optimizations in this version target both area
@@ -24,8 +24,9 @@
  *  14) Derive MATCH/FAULT combinationally in DONE, removing two result flops.
  *  15) Reuse the 11-bit scan register as the compression quotient storage,
  *      using aux_hi as the final rounding-bit latch; removes cfull storage.
- *  16) Replace the 12-bit output staging register with an 8-bit low-byte
- *      register plus direct high-nibble/message-byte selection.
+ *  16) Replace the 12-bit output staging register with direct dres output; remove out_low.
+ *  17) Derive the c1/c2 phase boundary from byte_cnt and nbits; remove the in_c2 flop.
+ *  18) Keep widths that are mathematically required; avoid unsafe truncation.
  *
  * No general multiplier, divider, shifted copy of q, or ciphertext memory.
  * Latency remains determined only by the public ML-KEM parameter and stream
@@ -137,12 +138,15 @@ module tt_um_vinayaka_pqc_fo (
     reg [11:0] aux;                  // decompressed/regenerated coefficient
     reg [3:0]  bitk;
     reg        mismatch;            // Sticky: at least one coefficient differs
-    reg [7:0]  out_low;              // buffered low byte for 12-bit coefficient output
     reg [1:0]  out_cnt;               // 0=none, 1=message byte, 2=coef low, 3=coef high
     reg        aux_hi;
     reg [7:0]  masm;
-    reg        in_c2;
 
+    // c2 begins only after all complete c1 coefficients have been consumed.
+    // The nbits test preserves the final c1 coefficient when the c1 boundary
+    // falls inside the unpack buffer, while eliminating a dedicated flop.
+    wire       in_c2 = (byte_cnt > c1_len) ||
+                       ((byte_cnt == c1_len) && (nbits < {1'b0, du}));
     wire [3:0] dunp = in_c2 ? dv : du;
     wire [3:0] dop  = (~phase & in_c2) ? 4'd1 : dunp;
 
@@ -233,11 +237,9 @@ module tt_um_vinayaka_pqc_fo (
                 aux      <= 12'd0;
                 bitk     <= 4'd0;
                 mismatch <= 1'b0;
-                out_low  <= 8'd0;
                 out_cnt  <= 2'd0;
                 aux_hi   <= 1'b0;
                 masm     <= 8'd0;
-                in_c2    <= 1'b0;
             end else begin
                 case (st)
                     S_IDLE: begin
@@ -286,7 +288,6 @@ module tt_um_vinayaka_pqc_fo (
                             st <= S_FIN;
                         end else begin
                             if (byte_cnt == c1_len) begin
-                                in_c2 <= 1'b1;
                                 buf_r <= 16'd0;
                                 nbits <= 5'd0;
                             end
@@ -316,9 +317,8 @@ module tt_um_vinayaka_pqc_fo (
                             aux_hi  <= 1'b0;
                             st      <= S_RXA;
                         end else begin
-                            // 12-bit dres: buffer only the low byte; the high nibble
-                            // can be read directly from the stable dres in S_ACC2.
-                            out_low  <= dres[7:0];
+                            // dres remains stable through S_ACC2, so no output
+                            // staging register is needed; both bytes are selected directly.
                             out_cnt  <= 2'd2;
                             coef_cnt <= coef_cnt + 11'd1;
                             st       <= S_ACC;
@@ -454,7 +454,7 @@ module tt_um_vinayaka_pqc_fo (
     assign uo_out  = (st == S_DONE) ? {6'd0, done_fault, done_match} :
                      (out_valid ?
                         ((out_cnt == 2'd1) ? masm :
-                         (out_cnt == 2'd2) ? out_low :
+                         (out_cnt == 2'd2) ? dres[7:0] :
                          {4'd0, dres[11:8]}) : 8'd0);
     assign uio_out = {((st == S_DONE) ? done_fault : 1'b0), busy, 6'd0};
     assign uio_oe  = 8'b1100_0000;
