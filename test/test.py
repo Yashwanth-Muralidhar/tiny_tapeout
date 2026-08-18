@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
 
-v4 fix: keep the original two-byte auxiliary handshake. After a ciphertext
+v5 fix: start exactly one clock coroutine for the entire regression; keep the original two-byte auxiliary handshake. After a ciphertext
 write, pulse_wr() waits through the UNP transition, so the pass-2 RTL is
 already in S_RXA when send_aux() starts. A BUSY-edge detector is not valid
 because the BUSY-high interval can occur entirely inside pulse_wr().
@@ -75,8 +75,21 @@ def busy(dut):
     return (int(dut.uio_out.value) >> 6) & 1
 
 
+_clock_started = False
+
+
 async def start_clock(dut):
-    cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
+    global _clock_started
+
+    # IMPORTANT: cocotb tests run sequentially in the same simulator.
+    # Starting a new Clock() in every test leaves the old clock coroutine
+    # running. The second test would therefore drive two clocks, the third
+    # three clocks, etc. That can corrupt every sequential DUT after the
+    # first test. Start exactly one clock for the entire regression.
+    if not _clock_started:
+        cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
+        _clock_started = True
+
     dut.ena.value = 1
     dut.ui_in.value = 0
     set_uio(dut)
