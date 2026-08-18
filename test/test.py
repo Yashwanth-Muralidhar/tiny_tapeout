@@ -81,14 +81,7 @@ class Dut:
     def __init__(self, dut, pr, phase):
         self.dut = dut
 
-        # Keep parameter + phase permanently encoded.
-        #
-        # uio_in:
-        #   [0] = WR
-        #   [1] = START
-        #   [2] = RD
-        #   [3] = PHASE
-        #   [5:4] = PARAMETER
+        # Parameter and phase remain encoded during every pulse.
         self.ctrl = (pr << 4) | (phase << 3)
 
     async def _pulse(self, bit):
@@ -99,8 +92,7 @@ class Dut:
 
         await ClockCycles(self.dut.clk, 1)
 
-        # IMPORTANT:
-        # Do NOT clear phase/parameter after the pulse.
+        # Preserve parameter + phase.
         self.dut.uio_in.value = self.ctrl
 
         await ClockCycles(self.dut.clk, 1)
@@ -134,7 +126,6 @@ async def reset(dut):
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
-
     dut.rst_n.value = 0
 
     await ClockCycles(dut.clk, 10)
@@ -148,13 +139,11 @@ async def reset(dut):
 
 async def wait_ciphertext_ready(dut, limit=30000):
     """
-    Wait until the DUT is ready for a ciphertext byte.
+    Wait until the DUT is ready to receive ciphertext.
 
-    In the repaired RTL:
-        BUSY=0 -> S_RXC / externally writable state
+    Repaired RTL:
+        BUSY=0 -> S_RXC
         BUSY=1 -> processing / S_RXA
-
-    Therefore BUSY is safe for ciphertext readiness.
     """
 
     for _ in range(limit):
@@ -178,29 +167,17 @@ def d_busy(dut):
 
 async def send_aux(dut, coeff):
     """
-    Send one regenerated 12-bit coefficient.
+    Send one regenerated 12-bit auxiliary coefficient.
 
-    IMPORTANT:
-
-    We do NOT wait for BUSY here.
-
-    After the ciphertext byte that completed the coefficient has
-    finished its write pulse, the repaired RTL has progressed:
-
-        S_RXC -> S_UNP -> S_RXA
-
-    and S_RXA accepts the two auxiliary bytes.
+    Phase and parameter are preserved throughout both writes.
     """
 
     assert 0 <= coeff < Q
 
-    # Low 8 bits
-    dut.ui_in.value = coeff & 0xFF
-
-    # WR pulse while preserving phase/parameter.
-    # The current phase is recovered from uio_in.
     current_ctrl = int(dut.uio_in.value) & 0xF8
 
+    # Low byte
+    dut.ui_in.value = coeff & 0xFF
     dut.uio_in.value = current_ctrl | 1
 
     await ClockCycles(dut.clk, 1)
@@ -209,9 +186,8 @@ async def send_aux(dut, coeff):
 
     await ClockCycles(dut.clk, 1)
 
-    # High 4 bits
+    # Upper four bits
     dut.ui_in.value = (coeff >> 8) & 0x0F
-
     dut.uio_in.value = current_ctrl | 1
 
     await ClockCycles(dut.clk, 1)
@@ -223,9 +199,9 @@ async def send_aux(dut, coeff):
 
 async def wait_aux_processing(dut, width, limit=30000):
     """
-    Wait for the DUT to finish processing one auxiliary coefficient.
+    Wait for the DUT to process one auxiliary coefficient.
 
-    In pass 2:
+    Pass-2 path is approximately:
 
         S_RXA
           -> S_CLD
@@ -233,23 +209,14 @@ async def wait_aux_processing(dut, width, limit=30000):
           -> S_ACC
           -> S_UNP
           -> S_RXA
-
-    The compression loop takes width+1 cycles.
-
-    We use a conservative width-dependent delay instead of trying to
-    detect S_RXA through BUSY, because S_RXA itself has BUSY=1 in the
-    repaired RTL.
     """
 
-    # Conservative processing interval:
-    #
-    # S_CLD      : 1
-    # S_CMP      : width + 1
-    # S_ACC      : 1
-    # S_UNP      : 1
-    #
-    # Add margin for nonblocking state transitions.
     cycles = width + 6
+
+    if cycles > limit:
+        raise AssertionError(
+            "Auxiliary processing interval exceeded limit"
+        )
 
     await ClockCycles(dut.clk, cycles)
 
@@ -320,11 +287,9 @@ async def run_verify(dut, pr, tamper=False):
     """
     Pass-2 verification.
 
-    The host streams the ciphertext and supplies the regenerated
-    coefficient corresponding to every decoded ciphertext coefficient.
-
-    Crucially, auxiliary scheduling is driven by the HOST'S copy of
-    the ciphertext bit unpacker rather than by ambiguous BUSY polling.
+    The host streams ciphertext and supplies regenerated
+    coefficients when the host-side unpacker determines that
+    a complete coefficient has arrived.
     """
 
     p = PARAMS[pr]
@@ -334,19 +299,17 @@ async def run_verify(dut, pr, tamper=False):
         seed=pr + 1
     )
 
-    # ------------------------------------------------------------
-    # Start clock
-    # ------------------------------------------------------------
+    # IMPORTANT:
+    # Start the clock BEFORE reset().
+    cocotb.start_soon(
+        Clock(
+            dut.clk,
+            20,
+            units="ns"
+        ).start()
+    )
 
-    # Clock is normally started by the individual cocotb test.
-    # Keep this guard-compatible with the original structure.
-    #
-    # reset() is still performed here because every run is independent.
     await reset(dut)
-
-    # ------------------------------------------------------------
-    # Pass 2
-    # ------------------------------------------------------------
 
     d = Dut(
         dut,
@@ -356,10 +319,7 @@ async def run_verify(dut, pr, tamper=False):
 
     await d.start()
 
-    # ------------------------------------------------------------
-    # Regenerated auxiliary coefficients
-    # ------------------------------------------------------------
-
+    # Regenerated auxiliary coefficients.
     aux = (
         [decompress(c, p["du"]) for c in u]
         +
@@ -369,10 +329,7 @@ async def run_verify(dut, pr, tamper=False):
     if tamper:
         aux[0] = (aux[0] + 1) % Q
 
-    # ------------------------------------------------------------
-    # Host-side copy of the DUT bit unpacker
-    # ------------------------------------------------------------
-
+    # Host-side copy of DUT bit unpacking.
     host_acc = 0
     host_bits = 0
 
@@ -386,46 +343,40 @@ async def run_verify(dut, pr, tamper=False):
 
     for byte_index, byte in enumerate(ct):
 
-        # The DUT must be ready for a ciphertext byte.
+        # Wait until S_RXC.
         await wait_ciphertext_ready(dut)
 
-        # Send exactly one ciphertext byte.
+        # Send ciphertext byte.
         await d.write(byte)
 
         # Mirror:
-        #
-        #     buf_r |= byte << nbits
-        #
+        # buf_r |= byte << nbits
         host_acc |= byte << host_bits
         host_bits += 8
 
         # --------------------------------------------------------
-        # Determine whether this byte completed coefficient(s).
+        # Check whether this byte completed one or more coefficients
         # --------------------------------------------------------
 
         while ai < len(aux):
 
-            # Determine coefficient width.
             if ai < u_coeffs:
                 width = p["du"]
             else:
                 width = p["dv"]
 
-            # Not enough bits yet for this coefficient.
             if host_bits < width:
                 break
 
-            # ----------------------------------------------------
-            # Remove coefficient from host-side bit stream.
-            # ----------------------------------------------------
-
-            coeff_bits = host_acc & ((1 << width) - 1)
+            # Extract coefficient from host stream.
+            coeff_bits = (
+                host_acc & ((1 << width) - 1)
+            )
 
             host_acc >>= width
             host_bits -= width
 
-            # The actual ciphertext coefficient should equal
-            # the coefficient generated in build_ciphertext().
+            # Verify host-side unpacking.
             expected_coeff = (
                 u[ai]
                 if ai < u_coeffs
@@ -438,10 +389,7 @@ async def run_verify(dut, pr, tamper=False):
                 f"expected {expected_coeff}"
             )
 
-            # ----------------------------------------------------
-            # Send regenerated auxiliary coefficient.
-            # ----------------------------------------------------
-
+            # Send regenerated coefficient.
             await send_aux(
                 dut,
                 aux[ai]
@@ -449,11 +397,9 @@ async def run_verify(dut, pr, tamper=False):
 
             ai += 1
 
-            # ----------------------------------------------------
-            # If another complete coefficient is already buffered,
-            # the DUT must process the current auxiliary value first.
-            # ----------------------------------------------------
-
+            # If another complete coefficient is already available
+            # from the same ciphertext byte, the DUT needs time to
+            # process the previous auxiliary value.
             if ai < len(aux):
 
                 if ai < u_coeffs:
@@ -463,19 +409,13 @@ async def run_verify(dut, pr, tamper=False):
 
                 if host_bits >= next_width:
 
-                    # Wait for current auxiliary processing.
                     await wait_aux_processing(
                         dut,
                         width
                     )
 
-                else:
-                    # No second coefficient is available yet.
-                    # The DUT will eventually return to S_RXC.
-                    break
-
     # ------------------------------------------------------------
-    # Final checks
+    # All coefficients must have been supplied
     # ------------------------------------------------------------
 
     assert ai == len(aux), (
@@ -488,23 +428,10 @@ async def run_verify(dut, pr, tamper=False):
         f"{host_bits} bits"
     )
 
-    # Wait for final coefficient processing.
-    #
-    # The final auxiliary coefficient may still be inside:
-    #
-    # S_CLD -> S_CMP -> S_ACC -> S_UNP -> S_FIN -> S_DONE
-    #
-    final_width = p["dv"]
-
+    # Allow final coefficient processing and result generation.
     await ClockCycles(
         dut.clk,
-        final_width + 10
-    )
-
-    # Give S_FIN/S_DONE additional margin.
-    await ClockCycles(
-        dut.clk,
-        20
+        p["dv"] + 20
     )
 
     res = int(dut.uo_out.value)
