@@ -94,7 +94,7 @@ module tt_um_vinayaka_pqc_fo (
   reg [1:0]  out_cnt;
 
   reg        aux_hi;
-  reg [6:0]  masm;
+  reg [7:0]  masm;
   reg [2:0]  mcnt;
 
   reg        fault, match_r, in_c2;
@@ -579,7 +579,7 @@ module tt_um_vinayaka_pqc_fo (
             end else if (in_c2) begin
 
               masm <=
-                  {cval[0], masm[6:1]};
+                  {cval[0], masm[7:1]};
 
               coef_cnt <=
                   coef_cnt + 12'd1;
