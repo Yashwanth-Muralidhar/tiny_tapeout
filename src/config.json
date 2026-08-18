@@ -8,8 +8,7 @@
   "FP_CORE_UTIL": 45,
   "PL_TARGET_DENSITY_PCT": 60,
   "SYNTH_ABC_BUFFERING": 1,
-  "FP_SIZING": "absolute",
-  "DIE_AREA": "0 0 161.00 111.52",
+  "FP_SIZING": "relative",
   "RUN_POST_GRT_DESIGN_REPAIR": true,
   "RUN_POST_GRT_RESIZER_TIMING": true
 }
