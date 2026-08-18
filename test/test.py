@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tiny Tapeout cocotb regression for tt_um_vinayaka_pqc_fo.
 
-v4 fix: keep the original two-byte auxiliary handshake. After a ciphertext
+v7 fix: serialize auxiliary-coefficient writes with the DUT processing interval. After a ciphertext
 write, pulse_wr() waits through the UNP transition, so the pass-2 RTL is
 already in S_RXA when send_aux() starts. A BUSY-edge detector is not valid
 because the BUSY-high interval can occur entirely inside pulse_wr().
@@ -130,6 +130,28 @@ async def send_aux(dut, coeff):
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
 
+async def wait_next_aux(dut, limit=10000):
+    """Wait for the current auxiliary coefficient to be processed.
+
+    In pass 2 the DUT spends several cycles in S_MSUB/S_CLD/S_CMP/S_ACC
+    after the two aux bytes. A second send_aux() must not be issued during
+    those states because ui_in is ignored there. The next S_RXA is the point
+    at which the next auxiliary coefficient may be accepted.
+
+    The current RTL exposes BUSY=0 in both S_RXC and S_RXA, so wait for the
+    processing interval (BUSY=1) to occur and then return on BUSY=0.
+    """
+    seen_processing = False
+    for _ in range(limit):
+        await RisingEdge(dut.clk)
+        b = busy(dut)
+        if b:
+            seen_processing = True
+        elif seen_processing:
+            return
+    raise AssertionError("Timeout waiting for next auxiliary input state")
+
+
 async def wait_done(dut, limit=100000):
     """Wait for S_DONE, not merely an input-ready state.
 
@@ -199,24 +221,15 @@ async def run_pass2(dut, param, seed, tamper_index=None):
     coeff_idx = 0
 
     for byte in ciphertext:
-        # Service coefficients already complete before accepting another byte.
-        while coeff_idx < p["n_tot"]:
-            d = p["du"] if coeff_idx < p["split"] else p["dv"]
-            if host_bits < d:
-                break
-
-            host_acc >>= d
-            host_bits -= d
-            await send_aux(dut, regenerated[coeff_idx])
-            coeff_idx += 1
-
         await wait_ready(dut)
         await pulse_wr(dut, byte)
 
         host_acc |= byte << host_bits
         host_bits += 8
 
-        # Service all coefficients completed by this byte.
+        # At most one/two coefficients can become available from one byte.
+        # Crucially, the DUT must finish the previous aux coefficient before
+        # accepting the next one.
         while coeff_idx < p["n_tot"]:
             d = p["du"] if coeff_idx < p["split"] else p["dv"]
             if host_bits < d:
@@ -224,8 +237,14 @@ async def run_pass2(dut, param, seed, tamper_index=None):
 
             host_acc >>= d
             host_bits -= d
+
             await send_aux(dut, regenerated[coeff_idx])
             coeff_idx += 1
+
+            if coeff_idx < p["n_tot"]:
+                next_d = p["du"] if coeff_idx < p["split"] else p["dv"]
+                if host_bits >= next_d:
+                    await wait_next_aux(dut)
 
     assert coeff_idx == p["n_tot"]
     assert host_bits == 0
