@@ -1,37 +1,37 @@
 `timescale 1ns / 1ps
 
-module tb (
-    input clk,
-    input rst_n
-);
+module tb;
 
-    // Internal signals
-    reg          clk_int;
-    reg          rst_n_int;
-    reg  [7:0]   din;
-    reg          din_valid;
-    wire [7:0]   dout;
-    wire         dout_valid;
-    
-    // ML-KEM top module
-    ml_kem_decap dut (
-        .clk(clk_int),
-        .rst_n(rst_n_int),
-        .din(din),
-        .din_valid(din_valid),
-        .dout(dout),
-        .dout_valid(dout_valid)
+    reg  [7:0] ui_in;
+    wire [7:0] uo_out;
+
+    reg  [7:0] uio_in;
+    wire [7:0] uio_out;
+    wire [7:0] uio_oe;
+
+    reg ena;
+    reg clk;
+    reg rst_n;
+
+    tt_um_vinayaka_pqc_fo dut (
+        .ui_in   (ui_in),
+        .uo_out  (uo_out),
+        .uio_in  (uio_in),
+        .uio_out (uio_out),
+        .uio_oe  (uio_oe),
+        .ena     (ena),
+        .clk     (clk),
+        .rst_n   (rst_n)
     );
-    
-    // Cocotb will override clk and rst_n
+
     initial begin
-        clk_int = 0;
-        rst_n_int = 0;
+        ui_in  = 8'd0;
+        uio_in = 8'd0;
+        ena    = 1'b1;
+        clk    = 1'b0;
+        rst_n  = 1'b0;
     end
-    
-    always @(*) begin
-        clk_int = clk;
-        rst_n_int = rst_n;
-    end
-    
+
+    always #5 clk = ~clk;
+
 endmodule
