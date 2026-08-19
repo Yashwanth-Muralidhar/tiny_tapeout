@@ -1,45 +1,42 @@
-# SPDX-FileCopyrightText: (c) 2026 H Vinayaka
-# SPDX-License-Identifier: Apache-2.0
-
+# Tiny Tapeout project metadata
 project:
-  title: "ML-KEM Decapsulation — Fujisaki-Okamoto Backend"
-  author: "H Vinayaka"
-  discord: ""
-  description: "Parameter-agile compress/decompress engine for ML-KEM decapsulation ciphertext verification. Supports ML-KEM-512, 768, 1024 with runtime parameter selection."
-  language: "Verilog"
-  clock_hz: 40000000
-
-  tiles: "1x1"
-  top_module: "tt_um_vinayaka_pqc_fo"
+  title:        "ML-KEM Decapsulation - Fujisaki-Okamoto Backend"
+  author:       "H Vinayaka"
+  discord:      ""
+  description:  "FO backend of ML-KEM decapsulation: ByteDecode, (de)compression, coefficient comparison, coefficient-count integrity check, implicit-rejection decision. Runtime param select for ML-KEM 512/768/1024."
+  language:     "Verilog"
+  clock_hz:     40000000
+  tiles:        "1x1"
+  top_module:   "tt_um_vinayaka_pqc_fo"
   source_files:
     - "project.v"
 
+# Pinout - documentation only (must match RTL behavior)
 pinout:
-  ui[0]: "data in bit 0"
-  ui[1]: "data in bit 1"
-  ui[2]: "data in bit 2"
-  ui[3]: "data in bit 3"
-  ui[4]: "data in bit 4"
-  ui[5]: "data in bit 5"
-  ui[6]: "data in bit 6"
-  ui[7]: "data in bit 7"
-
-  uo[0]: "MATCH (valid in S_DONE)"
-  uo[1]: "FAULT (valid in S_DONE)"
-  uo[2]: "out_reg[2] / stream byte"
-  uo[3]: "out_reg[3] / stream byte"
-  uo[4]: "out_reg[4] / stream byte"
-  uo[5]: "out_reg[5] / stream byte"
-  uo[6]: "out_reg[6] / stream byte"
-  uo[7]: "out_reg[7] / stream byte"
-
-  uio[0]: "wr (input, rising-edge strobe)"
-  uio[1]: "start (input, rising-edge strobe)"
-  uio[2]: "rd (input, rising-edge strobe)"
-  uio[3]: "phase (input, 0=pass1_decompress 1=pass2_verify)"
-  uio[4]: "param select bit 0 (input)"
-  uio[5]: "param select bit 1 (input)"
-  uio[6]: "BUSY (output)"
-  uio[7]: "FAULT (output)"
-
-yaml_version: 6
+  ui:
+    - "data[0]"
+    - "data[1]"
+    - "data[2]"
+    - "data[3]"
+    - "data[4]"
+    - "data[5]"
+    - "data[6]"
+    - "data[7]"
+  uo:
+    - "MATCH (match_r)"
+    - "FAULT (fault)"
+    - "stream_out[2]"
+    - "stream_out[3]"
+    - "stream_out[4]"
+    - "stream_out[5]"
+    - "stream_out[6]"
+    - "stream_out[7]"
+  uio:
+    - "wr (in)"
+    - "start (in)"
+    - "rd (in)"
+    - "phase (in)"
+    - "param_sel[0] (in)"
+    - "param_sel[1] (in)"
+    - "BUSY (out)"
+    - "FAULT (out)"
