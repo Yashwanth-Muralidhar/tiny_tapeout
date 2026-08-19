@@ -305,7 +305,7 @@ module tt_um_vinayaka_pqc_fo_v7 (
                                 2'd1: begin
                                     out_cnt <= 2'd0;
                                     st      <= S_UNP;
-                                end
+                                end 
                                 2'd2: begin
                                     out_cnt <= 2'd3;
                                 end
