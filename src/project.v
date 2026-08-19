@@ -8,7 +8,7 @@
 // Functionality and novelty (coeff-count integrity check) unchanged.
 
 
-module tt_um_vinayaka_pqc_fo (
+module tt_um_vinayaka_pqc_fo_v7 (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
     input  wire [7:0] uio_in,
@@ -201,7 +201,20 @@ module tt_um_vinayaka_pqc_fo (
 
 
                     S_RXC: if (wr_p) begin
-                        buf_r    <= buf_r | ({10'd0, ui_in} << nbits);
+                        case (nbits)
+                            5'd0:  buf_r <= buf_r | {10'd0, ui_in};
+                            5'd1:  buf_r <= buf_r | {9'd0,  ui_in, 1'd0};
+                            5'd2:  buf_r <= buf_r | {8'd0,  ui_in, 2'd0};
+                            5'd3:  buf_r <= buf_r | {7'd0,  ui_in, 3'd0};
+                            5'd4:  buf_r <= buf_r | {6'd0,  ui_in, 4'd0};
+                            5'd5:  buf_r <= buf_r | {5'd0,  ui_in, 5'd0};
+                            5'd6:  buf_r <= buf_r | {4'd0,  ui_in, 6'd0};
+                            5'd7:  buf_r <= buf_r | {3'd0,  ui_in, 7'd0};
+                            5'd8:  buf_r <= buf_r | {2'd0,  ui_in, 8'd0};
+                            5'd9:  buf_r <= buf_r | {1'd0,  ui_in, 9'd0};
+                            5'd10: buf_r <= buf_r | {ui_in, 10'd0};
+                            default: buf_r <= buf_r;
+                        endcase
                         nbits    <= nbits + 5'd8;
                         byte_cnt <= byte_cnt + 11'd1;
                         st       <= S_UNP;
