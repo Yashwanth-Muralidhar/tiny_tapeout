@@ -2,11 +2,12 @@
  * SPDX-FileCopyrightText: (c) 2026 H Vinayaka
  * SPDX-License-Identifier: Apache-2.0
  *
- * OPTIMIZATION CANDIDATE 1+2 (+fixes) (UNVERIFIED - MUST MEASURE ON SKY130)
+ * OPTIMIZATION CANDIDATE 1+2+3 (+fixes) (UNVERIFIED - MUST MEASURE ON SKY130)
  *   C1: diff[11:0] -> 1-bit sticky mismatch flag diff_s
  *   C2: out_reg[15:0] -> out_reg[11:0]
- *   FIX: line-384 width pad 3'd0 -> 4'd0 (12-bit clean)
- *   FIX: ycoef[11:0] -> ycoef[10:0] (ycoef[11] confirmed unused by Verilator)
+ *   C3: byte_cnt/coef_cnt [11:0] -> [10:0] (max 1568/1280 fit in 11 bits)
+ *   FIX: line width pad 3'd0 -> 4'd0 (12-bit clean)
+ *   FIX: ycoef[11:0] -> ycoef[10:0] (ycoef[11] confirmed unused)
  * Original New Document remains the golden reference.
  */
 
@@ -98,17 +99,17 @@ reg [18:0] buf_r;
 reg [4:0]  nbits;
 
 
-reg [11:0] byte_cnt, coef_cnt;
+reg [10:0] byte_cnt, coef_cnt;   // C3: was [11:0]
 
 
-reg [10:0] ycoef;           // FIX: was [11:0]; ycoef[11] confirmed unused
+reg [10:0] ycoef;                // FIX: was [11:0]
 reg [11:0] vco, aux;
 reg [3:0]  bitk;
 reg [12:0] cfull;
 
 
-reg        diff_s;          // C1: 1-bit sticky mismatch (was reg [11:0] diff)
-reg [11:0] out_reg;         // C2: narrowed from [15:0]
+reg        diff_s;               // C1
+reg [11:0] out_reg;              // C2
 reg [1:0]  out_cnt;
 
 
@@ -239,7 +240,7 @@ always @(posedge clk) begin
     aux       <= 0;
     bitk      <= 0;
     cfull     <= 0;
-    diff_s    <= 0;          // C1
+    diff_s    <= 0;
     out_reg   <= 0;
     out_cnt   <= 0;
     aux_hi    <= 0;
@@ -260,7 +261,7 @@ always @(posedge clk) begin
       nbits     <= 0;
       byte_cnt  <= 0;
       coef_cnt  <= 0;
-      diff_s    <= 0;        // C1
+      diff_s    <= 0;
       fault     <= 0;
       match_r   <= 0;
       in_c2     <= 0;
@@ -274,13 +275,13 @@ always @(posedge clk) begin
           if (wr_p) begin
             buf_r    <= buf_r | ({11'd0, ui_in} << nbits[3:0]);
             nbits    <= nbits + 5'd8;
-            byte_cnt <= byte_cnt + 12'd1;
+            byte_cnt <= byte_cnt + 11'd1;     // C3
             st       <= S_UNP;
           end
         end
         S_UNP: begin
           if (nbits >= {1'b0, dunp}) begin
-            ycoef <= ynew[10:0];    // FIX: 11-bit ycoef
+            ycoef <= ynew[10:0];
             case (dunp)
               4'd4:    buf_r <= {4'd0,  buf_r[18:4]};
               4'd5:    buf_r <= {5'd0,  buf_r[18:5]};
@@ -297,10 +298,10 @@ always @(posedge clk) begin
               bitk <= 0;
               st   <= S_DEC;
             end
-          end else if (byte_cnt == cx_len) begin
+          end else if ({1'b0, byte_cnt} == cx_len) begin   // C3: zero-extend compare
             st <= S_FIN;
           end else begin
-            if (byte_cnt == c1_len) begin
+            if ({1'b0, byte_cnt} == c1_len) begin          // C3: zero-extend compare
               in_c2 <= 1;
               buf_r <= 0;
               nbits <= 0;
@@ -319,17 +320,17 @@ always @(posedge clk) begin
         end
         S_OUT: begin
           if (phase) begin
-            diff_s   <= diff_s | (|(aux ^ dres));   // C1: sticky OR-reduce
-            coef_cnt <= coef_cnt + 12'd1;
+            diff_s   <= diff_s | (|(aux ^ dres));
+            coef_cnt <= coef_cnt + 11'd1;     // C3
             st       <= S_UNP;
           end else if (in_c2) begin
             vco    <= dres;
             aux_hi <= 0;
             st     <= S_RXA;
           end else begin
-            out_reg  <= dres;                       // C2: dres is 12 bits
+            out_reg  <= dres;
             out_cnt  <= 2'd2;
-            coef_cnt <= coef_cnt + 12'd1;
+            coef_cnt <= coef_cnt + 11'd1;     // C3
             st       <= S_ACC;
           end
         end
@@ -381,10 +382,10 @@ always @(posedge clk) begin
             st <= S_UNP;
           end else if (in_c2) begin
             masm     <= {cval[0], masm[7:1]};
-            coef_cnt <= coef_cnt + 12'd1;
+            coef_cnt <= coef_cnt + 11'd1;     // C3
             mcnt     <= mcnt + 3'd1;
             if (mcnt == 3'd7) begin
-              out_reg <= {4'd0, cval[0], masm[7:1]};  // FIX: 4'd0 pad -> 12-bit clean
+              out_reg <= {4'd0, cval[0], masm[7:1]};
               out_cnt <= 2'd1;
               st      <= S_ACC2;
             end else begin
@@ -398,13 +399,13 @@ always @(posedge clk) begin
           if (out_cnt == 0) begin
             st <= S_UNP;
           end else if (rd_p) begin
-            out_reg <= {4'd0, out_reg[11:4]};        // C2: shift high nibble+byte
+            out_reg <= {4'd0, out_reg[11:4]};
             out_cnt <= out_cnt - 2'd1;
           end
         end
         S_FIN: begin
-          fault   <= (coef_cnt != n_tot);
-          match_r <= (!diff_s) && (coef_cnt == n_tot);   // C1
+          fault   <= ({1'b0, coef_cnt} != n_tot);                  // C3: zero-extend compare
+          match_r <= (!diff_s) && ({1'b0, coef_cnt} == n_tot);     // C3: zero-extend compare
           st      <= S_DONE;
         end
         S_DONE: begin
