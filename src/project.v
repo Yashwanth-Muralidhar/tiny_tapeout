@@ -1,14 +1,16 @@
 `default_nettype none
 
 
-// tt_um_vinayaka_pqc_fo_v7 -- SAFE optimization subset applied:
+// tt_um_vinayaka_pqc_fo_v7 -- BASE + OPT-DUNP (corrected)
 //   OPT1: FSM binary encoding attribute (kept)
 //   OPT7: S_FIN state removed (folded into direct S_DONE transition)
 //   OPT8: uo_out output mux refactored to intermediate wire
+//   OPT-DUNP: case(dunp) extraction replaced by in_c2/pr decision tree
+//             (functionally identical to BASE; keyed on in_c2 and pr==2)
 // Functionality and novelty (coeff-count integrity check) unchanged.
 
 
-module tt_um_vinayaka_pqc_fo (
+module tt_um_vinayaka_pqc_fo_v7 (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
     input  wire [7:0] uio_in,
@@ -118,33 +120,37 @@ module tt_um_vinayaka_pqc_fo (
     reg [10:0] ynew;
 
 
+    // OPT-DUNP: equivalent to case(dunp), keyed on the signals that
+    // actually determine dunp:  dunp = in_c2 ? dv : du,
+    // with (du,dv) = (pr==2'd2) ? (11,5) : (10,4).
+    //   !in_c2 & pr==2 -> du=11 ; !in_c2 & else -> du=10
+    //    in_c2 & pr==2 -> dv=5  ;  in_c2 & else -> dv=4
     always @(*) begin
-        case (dunp)
-            4'd4: begin
-                accsh = acc[15:4];
-                rndb  = acc[3];
-                pres  = {buf_r[3:0], 7'd0};
-                ynew  = {7'd0, buf_r[3:0]};
-            end
-            4'd5: begin
-                accsh = acc[16:5];
-                rndb  = acc[4];
-                pres  = {buf_r[4:0], 6'd0};
-                ynew  = {6'd0, buf_r[4:0]};
-            end
-            4'd10: begin
+        if (!in_c2) begin
+            if (pr == 2'd2) begin        // du = 11
+                accsh = acc[22:11];
+                rndb  = acc[10];
+                pres  = buf_r[10:0];
+                ynew  = buf_r[10:0];
+            end else begin               // du = 10
                 accsh = acc[21:10];
                 rndb  = acc[9];
                 pres  = {buf_r[9:0], 1'd0};
                 ynew  = {1'd0, buf_r[9:0]};
             end
-            default: begin
-                accsh = acc[22:11];
-                rndb  = acc[10];
-                pres  = buf_r[10:0];
-                ynew  = buf_r[10:0];
+        end else begin
+            if (pr == 2'd2) begin        // dv = 5
+                accsh = acc[16:5];
+                rndb  = acc[4];
+                pres  = {buf_r[4:0], 6'd0};
+                ynew  = {6'd0, buf_r[4:0]};
+            end else begin               // dv = 4
+                accsh = acc[15:4];
+                rndb  = acc[3];
+                pres  = {buf_r[3:0], 7'd0};
+                ynew  = {7'd0, buf_r[3:0]};
             end
-        endcase
+        end
     end
 
 
@@ -201,20 +207,7 @@ module tt_um_vinayaka_pqc_fo (
 
 
                     S_RXC: if (wr_p) begin
-                        case (nbits)
-                            5'd0:  buf_r <= buf_r | {10'd0, ui_in};
-                            5'd1:  buf_r <= buf_r | {9'd0,  ui_in, 1'd0};
-                            5'd2:  buf_r <= buf_r | {8'd0,  ui_in, 2'd0};
-                            5'd3:  buf_r <= buf_r | {7'd0,  ui_in, 3'd0};
-                            5'd4:  buf_r <= buf_r | {6'd0,  ui_in, 4'd0};
-                            5'd5:  buf_r <= buf_r | {5'd0,  ui_in, 5'd0};
-                            5'd6:  buf_r <= buf_r | {4'd0,  ui_in, 6'd0};
-                            5'd7:  buf_r <= buf_r | {3'd0,  ui_in, 7'd0};
-                            5'd8:  buf_r <= buf_r | {2'd0,  ui_in, 8'd0};
-                            5'd9:  buf_r <= buf_r | {1'd0,  ui_in, 9'd0};
-                            5'd10: buf_r <= buf_r | {ui_in, 10'd0};
-                            default: buf_r <= buf_r;
-                        endcase
+                        buf_r    <= buf_r | ({10'd0, ui_in} << nbits);
                         nbits    <= nbits + 5'd8;
                         byte_cnt <= byte_cnt + 11'd1;
                         st       <= S_UNP;
@@ -247,7 +240,7 @@ module tt_um_vinayaka_pqc_fo (
                                 st   <= S_DEC;
                             end
                         end else if (byte_cnt == cx_len) begin
-                            st <= S_DONE;          // OPT7: was S_FIN
+                            st <= S_DONE;
                         end else begin
                             if (byte_cnt == c1_len) begin
                                 in_c2 <= 1'b1;
@@ -390,7 +383,6 @@ module tt_um_vinayaka_pqc_fo (
     wire done_match = (~mismatch) && (coef_cnt == n_tot);
 
 
-    // OPT8: output byte-select refactored to intermediate wire (identical logic)
     wire [7:0] out_mux = (out_cnt == 2'd1) ? masm :
                          (out_cnt == 2'd2) ? out_low :
                                              {4'd0, dres[11:8]};
