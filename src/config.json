@@ -1,6 +1,5 @@
-```json
 {
-  "DESIGN_NAME": "tt_um_vinayaka_pqc_fo",
+  "DESIGN_NAME": "tt_um_vinayaka_pqc_fo_v7",
   "VERILOG_FILES": ["dir::project.v"],
   "CLOCK_PERIOD": 20,
   "CLOCK_PORT": "clk",
@@ -15,4 +14,3 @@
   "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 5,
   "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 5
 }
-```
