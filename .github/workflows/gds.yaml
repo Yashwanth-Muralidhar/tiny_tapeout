@@ -18,47 +18,6 @@ jobs:
         with:
           pdk: sky130A
 
-      - name: Inspect OpenROAD artifacts
-        if: always()
-        shell: bash
-        run: |
-          echo "=== runs directory ==="
-          find runs -type f 2>/dev/null | sort | tail -100 || true
-
-          echo "=== RepairDesignPostGPL artifacts ==="
-          find runs -type f -path '*repairdesignpostgpl*' 2>/dev/null | sort || true
-
-
-      - name: Inspect high fanout nets
-        if: always()
-        shell: bash
-        run: |
-          ODB=$(find runs -type f -path '*repairdesignpostgpl*' -name '*.odb' | head -1)
-
-          echo "ODB = $ODB"
-
-          if [ -z "$ODB" ]; then
-            echo "ERROR: RepairDesignPostGPL ODB not found"
-            exit 1
-          fi
-
-          openroad -exit -no_init <<EOF
-          read_db $ODB
-
-          foreach n [get_nets *] {
-              set pins [get_pins -of_objects \$n]
-              set fo 0
-              foreach p \$pins {
-                  if {[get_property \$p direction] == "input"} {
-                      incr fo
-                  }
-              }
-              if {\$fo > 8} {
-                  puts "\$fo [get_full_name \$n]"
-              }
-          }
-          EOF
-
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
@@ -82,7 +41,7 @@ jobs:
     needs: gds
     runs-on: ubuntu-24.04
     permissions:
-      pages: write
-      id-token: write
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
     steps:
       - uses: TinyTapeout/tt-gds-action/viewer@ttsky26c
