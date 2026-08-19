@@ -9,10 +9,10 @@
  *   FIX: ycoef[11:0] -> ycoef[10:0] (ycoef[11] confirmed unused by Verilator)
  * Original New Document remains the golden reference.
  */
-﻿
+
 
 `default_nettype none
-﻿
+
 
 module tt_um_vinayaka_pqc_fo (
   input  wire [7:0] ui_in,
@@ -24,28 +24,28 @@ module tt_um_vinayaka_pqc_fo (
   input  wire       clk,
   input  wire       rst_n
 );
-﻿
+
 
 localparam [11:0] Q = 12'd3329;
-﻿
+
 
 wire wr_i    = uio_in[0];
 wire start_i = uio_in[1];
 wire rd_i    = uio_in[2];
 wire phase   = uio_in[3];
 wire [1:0] pr = uio_in[5:4];
-﻿
+
 
 reg wr_q, start_q, rd_q;
 wire wr_p    = wr_i & ~wr_q;
 wire start_p = start_i & ~start_q;
 wire rd_p    = rd_i & ~rd_q;
-﻿
+
 
 reg [3:0]  du, dv;
 reg [11:0] c1_len, cx_len;
 reg [11:0] n_tot;
-﻿
+
 
 always @(*) begin
   case (pr)
@@ -72,7 +72,7 @@ always @(*) begin
     end
   endcase
 end
-﻿
+
 
 localparam S_IDLE  = 0,
            S_RXC   = 1,
@@ -87,53 +87,53 @@ localparam S_IDLE  = 0,
            S_ACC2  = 10,
            S_FIN   = 11,
            S_DONE  = 12;
-﻿
+
 
 reg [3:0] st;
-﻿
+
 
 reg [22:0] acc;
 reg [11:0] rem, scan;
 reg [18:0] buf_r;
 reg [4:0]  nbits;
-﻿
+
 
 reg [11:0] byte_cnt, coef_cnt;
-﻿
+
 
 reg [10:0] ycoef;           // FIX: was [11:0]; ycoef[11] confirmed unused
 reg [11:0] vco, aux;
 reg [3:0]  bitk;
 reg [12:0] cfull;
-﻿
+
 
 reg        diff_s;          // C1: 1-bit sticky mismatch (was reg [11:0] diff)
 reg [11:0] out_reg;         // C2: narrowed from [15:0]
 reg [1:0]  out_cnt;
-﻿
+
 
 reg        aux_hi;
 reg [7:0]  masm;
 reg [2:0]  mcnt;
-﻿
+
 
 reg fault, match_r, in_c2;
-﻿
+
 
 wire [3:0] dunp = in_c2 ? dv : du;
 wire [3:0] dop  = (~phase & in_c2) ? 4'd1 : dunp;
-﻿
+
 
 wire [11:0] cx = (~phase & in_c2) ? vco : aux;
-﻿
+
 
 /* -------------------------------------------------------------
  * Compress result decode
  * ------------------------------------------------------------- */
-﻿
+
 
 reg [11:0] dmask;
-﻿
+
 
 always @(*) begin
   case (dop)
@@ -144,21 +144,21 @@ always @(*) begin
     default: dmask = 12'h7FF;
   endcase
 end
-﻿
+
 
 wire [11:0] cval =
     (cfull[12:1] + {11'd0, cfull[0]}) & dmask;
-﻿
+
 
 /* -------------------------------------------------------------
  * Decompression datapath
  * ------------------------------------------------------------- */
-﻿
+
 
 reg [11:0] accsh;
 reg        rndb;
 reg [11:0] pres, ynew;
-﻿
+
 
 always @(*) begin
   case (dunp)
@@ -188,39 +188,39 @@ always @(*) begin
     end
   endcase
 end
-﻿
+
 
 wire [11:0] dres = accsh + {11'd0, rndb};
-﻿
+
 
 /* -------------------------------------------------------------
  * Pass-1 compression datapath
  * ------------------------------------------------------------- */
-﻿
+
 
 wire [12:0] wsub =
     {1'b0, vco} - {1'b0, aux};
-﻿
+
 
 wire [11:0] wmod =
     wsub[12] ? (wsub[11:0] + Q) : wsub[11:0];
-﻿
+
 
 wire [12:0] rem2 =
     {rem, 1'b0};
-﻿
+
 
 wire ge =
     (rem2 >= {1'b0, Q});
-﻿
+
 
 /* -------------------------------------------------------------
  * Main FSM
  * ------------------------------------------------------------- */
-﻿
+
 
 always @(posedge clk) begin
-﻿
+
 
   if (!rst_n) begin
     st        <= S_IDLE;
@@ -252,7 +252,7 @@ always @(posedge clk) begin
     wr_q    <= wr_i;
     start_q <= start_i;
     rd_q    <= rd_i;
-﻿
+
 
     if (start_p) begin
       st        <= S_RXC;
@@ -417,12 +417,12 @@ always @(posedge clk) begin
     end
   end
 end
-﻿
+
 
 /* -------------------------------------------------------------
  * Interface
  * ------------------------------------------------------------- */
-﻿
+
 
 wire busy =
     !(st == S_IDLE ||
@@ -430,24 +430,24 @@ wire busy =
       st == S_RXC  ||
       st == S_RXA  ||
       (st == S_ACC2 && out_cnt != 0));
-﻿
+
 
 assign uo_out =
     (st == S_DONE) ?
     {6'd0, fault, match_r} :
     out_reg[7:0];
-﻿
+
 
 assign uio_out =
     {fault, busy, 6'd0};
-﻿
+
 
 assign uio_oe =
     8'b1100_0000;
-﻿
+
 
 wire _unused =
     &{ena, uio_in[7:6], 1'b0};
-﻿
+
 
 endmodule
