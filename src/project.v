@@ -8,7 +8,7 @@
 //   OPT-DUNP: case(dunp) extraction replaced by in_c2/pr decision tree
 //             (functionally identical to BASE; keyed on in_c2 and pr==2)
 // Functionality and novelty (coeff-count integrity check) unchanged.
-
+ 
  
 module tt_um_vinayaka_pqc_fo (
     input  wire [7:0] ui_in,
