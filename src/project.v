@@ -7,7 +7,7 @@
 
 module tt_um_vinayaka_pqc_fo (
     input  wire [7:0] ui_in,
-    output wire [7:0] uo_out,
+    output wire [7:0] uo_out, 
     input  wire [7:0] uio_in,
     output wire [7:0] uio_out,
     output wire [7:0] uio_oe,
