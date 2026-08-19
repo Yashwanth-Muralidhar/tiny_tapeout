@@ -12,8 +12,8 @@ module tt_um_vinayaka_pqc_fo (
     output wire [7:0] uio_out,
     output wire [7:0] uio_oe,
     input  wire       ena,
-    input wire        clk,
-    input wire        rst_n
+    input  wire       clk,
+    input  wire       rst_n
 );
 
   localparam [11:0] Q = 12'd3329;
@@ -89,7 +89,7 @@ module tt_um_vinayaka_pqc_fo (
   reg [3:0]  bitk;
   reg [12:0] cfull;
 
-  reg        mism;
+  reg [11:0] diff;
   reg [15:0] out_reg;
   reg [1:0]  out_cnt;
 
@@ -104,11 +104,13 @@ module tt_um_vinayaka_pqc_fo (
 
   wire [11:0] cx = (~phase & in_c2) ? vco : aux;
 
+  /* Compress result decode (arithmetic mask, saves ~20 cells vs case statement) */
   wire [11:0] dmask = (12'd1 << dop) - 12'd1;
 
   wire [11:0] cval =
       ({1'b0, cfull[11:1]} + {11'd0, cfull[0]}) & dmask;
 
+  /* Decompression datapath */
   reg [11:0] accsh;
   reg        rndb;
   reg [11:0] pres, ynew;
@@ -147,11 +149,13 @@ module tt_um_vinayaka_pqc_fo (
 
   wire [11:0] dres = accsh + {11'd0, rndb};
 
+  /* Pass-1 compression datapath */
   wire [12:0] wsub = {1'b0, vco} - {1'b0, aux};
   wire [11:0] wmod = wsub[12] ? (wsub[11:0] + Q) : wsub[11:0];
   wire [12:0] rem2 = {rem, 1'b0};
   wire ge = (rem2 >= {1'b0, Q});
 
+  /* Main FSM */
   always @(posedge clk) begin
 
     if (!rst_n) begin
@@ -177,7 +181,7 @@ module tt_um_vinayaka_pqc_fo (
       bitk      <= 0;
       cfull     <= 0;
 
-      mism      <= 1'b0;
+      diff      <= 0;
 
       out_reg   <= 0;
       out_cnt   <= 0;
@@ -203,7 +207,7 @@ module tt_um_vinayaka_pqc_fo (
         nbits     <= 0;
         byte_cnt  <= 0;
         coef_cnt  <= 0;
-        mism      <= 1'b0;
+        diff      <= 0;
         fault     <= 0;
         match_r   <= 0;
         in_c2     <= 0;
@@ -274,7 +278,7 @@ module tt_um_vinayaka_pqc_fo (
 
           S_OUT: begin
             if (phase) begin
-              mism <= mism | (aux != dres);
+              diff <= diff | (aux ^ dres);
               coef_cnt <= coef_cnt + 12'd1;
               st <= S_UNP;
 
@@ -380,7 +384,7 @@ module tt_um_vinayaka_pqc_fo (
 
           S_FIN: begin
             fault <= (coef_cnt != n_tot);
-            match_r <= (!mism) && (coef_cnt == n_tot);
+            match_r <= (diff == 0) && (coef_cnt == n_tot);
             st <= S_DONE;
           end
 
@@ -400,7 +404,8 @@ module tt_um_vinayaka_pqc_fo (
 
   end
 
-  wire busy = !(st == S_IDLE || st == S_DONE || st == S_RXC ||
+  /* Interface */
+  wire busy = !(st == S_IDLE || st == S_DONE || st == S_RXC || 
                 st == S_RXA || (st == S_ACC2 && out_cnt != 0));
 
   assign uo_out = (st == S_DONE) ? {6'd0, fault, match_r} : out_reg[7:0];
