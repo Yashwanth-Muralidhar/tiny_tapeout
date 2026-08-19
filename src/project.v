@@ -7,7 +7,7 @@
 //   UNVERIFIED (base OPT-DUNP has an open RXA regression). PPA experiment only.
  
 
-module tt_um_vinayaka_pqc_fo_v7 (
+module tt_um_vinayaka_pqc_fo (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
     input  wire [7:0] uio_in,
