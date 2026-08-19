@@ -1,18 +1,19 @@
 # SPDX-FileCopyrightText: (c) 2026 H Vinayaka
 # SPDX-License-Identifier: Apache-2.0
+
 project:
-  title:         "Parameter-agile ML-KEM FO backend"
-  author:        "H Vinayaka"
-  discord:       ""
-  description:   "Divider-free constant-Q compress/decompress engine for ML-KEM (Kyber) decapsulation ciphertext verification"
-  language:      "Verilog"
-  clock_hz:      50000000
+  title: "ML-KEM Decapsulation â€” Fujisaki-Okamoto Backend"
+  author: "H Vinayaka"
+  discord: ""
+  description: "Parameter-agile compress/decompress engine for ML-KEM decapsulation ciphertext verification. Supports ML-KEM-512, 768, 1024 with runtime parameter selection."
+  language: "Verilog"
+  clock_hz: 40000000
 
-  tiles: "1x1"
-  top_module: "tt_um_vinayaka_pqc_fo"
+tiles: "1x1"
+top_module: "tt_um_vinayaka_pqc_fo"
 
-  source_files:
-    - "project.v"
+source_files:
+  - "project.v"
 
 pinout:
   ui[0]: "data in bit 0"
@@ -36,11 +37,10 @@ pinout:
   uio[0]: "wr (input, rising-edge strobe)"
   uio[1]: "start (input, rising-edge strobe)"
   uio[2]: "rd (input, rising-edge strobe)"
-  uio[3]: "phase (input, 0=decode 1=verify)"
+  uio[3]: "phase (input, 0=pass1_decompress 1=pass2_verify)"
   uio[4]: "param select bit 0 (input)"
   uio[5]: "param select bit 1 (input)"
   uio[6]: "BUSY (output)"
   uio[7]: "FAULT (output)"
 
-# Do not change!
 yaml_version: 6
