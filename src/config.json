@@ -1,11 +1,11 @@
 {
   "DESIGN_NAME": "tt_um_vinayaka_pqc_fo",
-  "VERILOG_FILES": ["dir::src/project.v"],
+  "VERILOG_FILES": ["dir::project.v"],
   "CLOCK_PERIOD": 20,
   "CLOCK_PORT": "clk",
   "FP_SIZING": "absolute",
   "DIE_AREA": "0 0 161.00 111.52",
   "FP_CORE_UTIL": 45,
-  "PL_TARGET_DENSITY_PCT": 75,
+  "PL_TARGET_DENSITY_PCT": 70,
   "SYNTH_ABC_BUFFERING": 0
 }
