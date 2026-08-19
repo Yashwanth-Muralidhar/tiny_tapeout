@@ -32,7 +32,7 @@ module tt_um_vinayaka_pqc_fo (
   input  wire       clk,
   input  wire       rst_n
 );
-
+ 
 localparam [11:0] Q = 12'd3329;
 
 wire wr_i    = uio_in[0];
