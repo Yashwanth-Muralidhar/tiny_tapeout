@@ -595,7 +595,7 @@ module tt_um_vinayaka_pqc_fo (
               if (mcnt == 3'd7) begin
 
                 out_reg <=
-                    {3'd0, cval[0], masm[7:1]};
+                    {4'd0, cval[0], masm[7:1]};
 
                 out_cnt <= 2'd1;
 
