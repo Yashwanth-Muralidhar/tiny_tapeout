@@ -1,46 +1,37 @@
-`timescale 1ns/1ps
-`default_nettype none
+`timescale 1ns / 1ps
 
-`include "../src/project_opt1_isolated_renamed.v"
+module tb (
+    input clk,
+    input rst_n
+);
 
-module tb;
-
-    reg  [7:0] ui_in;
-    wire [7:0] ref_uo_out;
-    wire [7:0] ref_uio_out;
-    wire [7:0] ref_uio_oe;
-
-    wire [7:0] opt_uo_out;
-    wire [7:0] opt_uio_out;
-    wire [7:0] opt_uio_oe;
-
-    reg  [7:0] uio_in;
-    reg        ena;
-    reg        clk;
-    reg        rst_n;
-
-    tt_um_vinayaka_pqc_fo ref (
-        .ui_in   (ui_in),
-        .uo_out  (ref_uo_out),
-        .uio_in  (uio_in),
-        .uio_out (ref_uio_out),
-        .uio_oe  (ref_uio_oe),
-        .ena      (ena),
-        .clk      (clk),
-        .rst_n    (rst_n)
+    // Internal signals
+    reg          clk_int;
+    reg          rst_n_int;
+    reg  [7:0]   din;
+    reg          din_valid;
+    wire [7:0]   dout;
+    wire         dout_valid;
+    
+    // ML-KEM top module
+    ml_kem_decap dut (
+        .clk(clk_int),
+        .rst_n(rst_n_int),
+        .din(din),
+        .din_valid(din_valid),
+        .dout(dout),
+        .dout_valid(dout_valid)
     );
-
-    tt_um_vinayaka_pqc_fo_opt opt (
-        .ui_in   (ui_in),
-        .uo_out  (opt_uo_out),
-        .uio_in  (uio_in),
-        .uio_out (opt_uio_out),
-        .uio_oe  (opt_uio_oe),
-        .ena      (ena),
-        .clk      (clk),
-        .rst_n    (rst_n)
-    );
-
+    
+    // Cocotb will override clk and rst_n
+    initial begin
+        clk_int = 0;
+        rst_n_int = 0;
+    end
+    
+    always @(*) begin
+        clk_int = clk;
+        rst_n_int = rst_n;
+    end
+    
 endmodule
-
-`default_nettype wire
