@@ -9,11 +9,10 @@ project:
   language: "Verilog"
   clock_hz: 40000000
 
-tiles: "1x1"
-top_module: "tt_um_vinayaka_pqc_fo"
-
-source_files:
-  - "project.v"
+  tiles: "1x1"
+  top_module: "tt_um_vinayaka_pqc_fo"
+  source_files:
+    - "project.v"
 
 pinout:
   ui[0]: "data in bit 0"
@@ -24,6 +23,7 @@ pinout:
   ui[5]: "data in bit 5"
   ui[6]: "data in bit 6"
   ui[7]: "data in bit 7"
+
   uo[0]: "MATCH (valid in S_DONE)"
   uo[1]: "FAULT (valid in S_DONE)"
   uo[2]: "out_reg[2] / stream byte"
@@ -32,6 +32,7 @@ pinout:
   uo[5]: "out_reg[5] / stream byte"
   uo[6]: "out_reg[6] / stream byte"
   uo[7]: "out_reg[7] / stream byte"
+
   uio[0]: "wr (input, rising-edge strobe)"
   uio[1]: "start (input, rising-edge strobe)"
   uio[2]: "rd (input, rising-edge strobe)"
