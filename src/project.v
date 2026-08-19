@@ -75,7 +75,7 @@ module tt_um_vinayaka_pqc_fo (
              S_FIN  = 11,
              S_DONE = 12;
 
-  (* fsm_encoding = "none" *) reg [3:0] st;
+  reg [3:0] st;
 
   reg [22:0] acc;
   reg [11:0] rem, scan;
@@ -84,10 +84,10 @@ module tt_um_vinayaka_pqc_fo (
 
   reg [11:0] byte_cnt, coef_cnt;
 
-  reg [10:0] ycoef;
+  reg [11:0] ycoef;
   reg [11:0] vco, aux;
   reg [3:0]  bitk;
-  reg [11:0] cfull;
+  reg [12:0] cfull;
 
   reg        mism;
   reg [15:0] out_reg;
@@ -108,8 +108,17 @@ module tt_um_vinayaka_pqc_fo (
    * Compress result decode
    * ------------------------------------------------------------- */
 
-  wire [11:0] dmask =
-      (12'd1 << dop) - 12'd1;
+  reg [11:0] dmask;
+
+  always @(*) begin
+    case (dop)
+      4'd1:    dmask = 12'h001;
+      4'd4:    dmask = 12'h00F;
+      4'd5:    dmask = 12'h01F;
+      4'd10:   dmask = 12'h3FF;
+      default: dmask = 12'h7FF;
+    endcase
+  end
 
   wire [11:0] cval =
       ({1'b0, cfull[11:1]} + {11'd0, cfull[0]}) & dmask;
