@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 project:
-  title: "ML-KEM Decapsulation â€” Fujisaki-Okamoto Backend"
+  title: "ML-KEM Decapsulation — Fujisaki-Okamoto Backend"
   author: "H Vinayaka"
   discord: ""
   description: "Parameter-agile compress/decompress engine for ML-KEM decapsulation ciphertext verification. Supports ML-KEM-512, 768, 1024 with runtime parameter selection."
@@ -24,7 +24,6 @@ pinout:
   ui[5]: "data in bit 5"
   ui[6]: "data in bit 6"
   ui[7]: "data in bit 7"
-
   uo[0]: "MATCH (valid in S_DONE)"
   uo[1]: "FAULT (valid in S_DONE)"
   uo[2]: "out_reg[2] / stream byte"
@@ -33,7 +32,6 @@ pinout:
   uo[5]: "out_reg[5] / stream byte"
   uo[6]: "out_reg[6] / stream byte"
   uo[7]: "out_reg[7] / stream byte"
-
   uio[0]: "wr (input, rising-edge strobe)"
   uio[1]: "start (input, rising-edge strobe)"
   uio[2]: "rd (input, rising-edge strobe)"
