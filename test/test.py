@@ -223,10 +223,9 @@ async def run_pass1(dut, param, seed):
 
     await pulse_start(dut, param, phase=0)
 
-    # Index of the next c2-region coefficient whose plaintext value the
-    # DUT will request via S_RXA. Only coefficients >= split (the dv/c2
-    # region) ever hit S_RXA in phase=0.
-    aux_idx = p["split"]
+    # F1 RTL: masm/in_c2-skip path removed, so S_RXA is now requested for
+    # EVERY coefficient in phase=0 (both c1 and c2 regions), not just c2.
+    aux_idx = 0
 
     async def drain(byte_idx):
         """Service S_RXA (feed aux) and S_ACC2 (drain pending output)
@@ -236,8 +235,7 @@ async def run_pass1(dut, param, seed):
             st = int(dut.user_project.st.value)
             if st == 5:  # S_RXA
                 assert aux_idx < p["n_tot"], (
-                    f"{p['name']} pass1: unexpected S_RXA before c2 region "
-                    f"(aux_idx={aux_idx})"
+                    f"{p['name']} pass1: unexpected S_RXA (aux_idx={aux_idx})"
                 )
                 await send_aux(dut, coeffs[aux_idx])
                 aux_idx += 1
