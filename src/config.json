@@ -1,5 +1,5 @@
 {
-  "DESIGN_NAME": "tt_um_vinayaka_pqc_fo_v7",
+  "DESIGN_NAME": "tt_um_vinayaka_pqc_fo",
   "VERILOG_FILES": ["dir::project.v"],
 
   "CLOCK_PERIOD": 20,
