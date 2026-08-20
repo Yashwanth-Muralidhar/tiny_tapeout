@@ -1,9 +1,21 @@
 `default_nettype none
 
-// tt_um_vinayaka_pqc_fo_v10 -- Candidate F1
-//   BASE + OPT-DUNP + OPT-DMASK, with masm/phase-0-C2 accumulation path
-//   removed. Keeps S_RXA aux-reference verification, mismatch,
-//   MATCH/FAULT as the core novelty.
+// tt_um_vinayaka_pqc_fo_v11 -- Candidate F2
+// Based on Candidate F1.
+// Change:
+//   - Removed dead S_MSUB and S_CLD states.
+//   - Phase-1 auxiliary setup is folded directly into S_RXA.
+//   - Removed dead pass-1 wsub/wmod/dop machinery.
+// Kept:
+//   - ML-KEM-512/768/1024 parameter support
+//   - streaming unpack/decompress
+//   - auxiliary-reference verification
+//   - cumulative mismatch detection
+//   - MATCH/FAULT result
+//   - Candidate E direct dmask decode
+//
+// Important: this is an RTL optimization candidate. Measure synthesis,
+// functional tests, and physical implementation before replacing F1.
 
 module tt_um_vinayaka_pqc_fo (
     input  wire [7:0] ui_in,
@@ -27,6 +39,7 @@ module tt_um_vinayaka_pqc_fo (
     reg wr_q, start_q, rd_q;
     reg phase_r;
     reg [1:0] pr_r;
+
     wire       phase = phase_r;
     wire [1:0] pr = pr_r;
     wire wr_p    = wr_i    & ~wr_q;
@@ -73,8 +86,6 @@ module tt_um_vinayaka_pqc_fo (
         S_DEC  = 4'd3,
         S_OUT  = 4'd4,
         S_RXA  = 4'd5,
-        S_MSUB = 4'd6,
-        S_CLD  = 4'd7,
         S_CMP  = 4'd8,
         S_ACC  = 4'd9,
         S_ACC2 = 4'd10,
@@ -85,6 +96,7 @@ module tt_um_vinayaka_pqc_fo (
     reg [10:0] scan;
     reg [17:0] buf_r;
     reg [4:0]  nbits;
+
     reg [10:0] byte_cnt, coef_cnt;
     reg [10:0] ycoef;
     reg [11:0] aux;
@@ -102,6 +114,7 @@ module tt_um_vinayaka_pqc_fo (
     reg [10:0] pres;
     reg [10:0] ynew;
 
+    // OPT-DUNP: extraction keyed directly by in_c2 and parameter.
     always @(*) begin
         if (!in_c2) begin
             if (pr == 2'd2) begin
@@ -132,21 +145,52 @@ module tt_um_vinayaka_pqc_fo (
 
     wire [11:0] dres = accsh + {11'd0, rndb};
 
-    wire [12:0] wsub = {1'b0, dres} - {1'b0, aux};
-    wire [11:0] wmod = wsub[12] ? (wsub[11:0] + Q) : wsub[11:0];
+    // Candidate E dmask. The old phase-0-C2 dop=1/MASM path is gone.
+    reg [10:0] dmask;
+    always @(*) begin
+        if (!in_c2)
+            dmask = (pr == 2'd2) ? 11'h7FF : 11'h3FF;
+        else
+            dmask = (pr == 2'd2) ? 11'h01F : 11'h00F;
+    end
+
+    // Declare cval before the sequential block so Icarus can elaborate it.
+    wire [11:0] cbase = {1'b0, scan} + {11'd0, aux_hi};
+    wire [10:0] cval  = cbase[10:0] & dmask;
 
     wire [11:0] rem_shift = {rem[10:0], 1'b0};
     wire        ge        = (rem >= 12'd1665);
     wire [11:0] rem_next  = ge ? (rem_shift - Q) : rem_shift;
 
+    // The completed auxiliary value on the second RXA byte.
+    // aux[7:0] contains the first byte; ui_in[3:0] is the high nibble.
+    wire [11:0] aux_full = {ui_in[3:0], aux[7:0]};
+
     always @(posedge clk) begin
         if (!rst_n) begin
-            st      <= S_IDLE;
-            wr_q    <= 1'b0;
-            start_q <= 1'b0;
-            rd_q    <= 1'b0;
-            phase_r <= 1'b0;
-            pr_r    <= 2'd0;
+            st        <= S_IDLE;
+            wr_q      <= 1'b0;
+            start_q   <= 1'b0;
+            rd_q      <= 1'b0;
+            phase_r   <= 1'b0;
+            pr_r      <= 2'd0;
+
+            acc       <= 23'd0;
+            rem       <= 12'd0;
+            scan      <= 11'd0;
+            buf_r     <= 18'd0;
+            nbits     <= 5'd0;
+
+            byte_cnt  <= 11'd0;
+            coef_cnt  <= 11'd0;
+            ycoef     <= 11'd0;
+            aux       <= 12'd0;
+            bitk      <= 4'd0;
+            mismatch  <= 1'b0;
+            out_low   <= 8'd0;
+            out_cnt   <= 2'd0;
+            aux_hi    <= 1'b0;
+            in_c2     <= 1'b0;
         end else begin
             wr_q    <= wr_i;
             start_q <= start_i;
@@ -156,6 +200,7 @@ module tt_um_vinayaka_pqc_fo (
                 phase_r  <= phase_i;
                 pr_r     <= pr_i;
                 st       <= S_RXC;
+
                 acc      <= 23'd0;
                 rem      <= 12'd0;
                 scan     <= 11'd0;
@@ -173,6 +218,7 @@ module tt_um_vinayaka_pqc_fo (
                 in_c2    <= 1'b0;
             end else begin
                 case (st)
+
                     S_IDLE: begin
                     end
 
@@ -229,9 +275,7 @@ module tt_um_vinayaka_pqc_fo (
                     end
 
                     S_OUT: begin
-                        // masm/phase-0-C2 accumulation path removed:
-                        // phase=0 always emits the decompressed output,
-                        // regardless of in_c2.
+                        // F1: phase-0 always emits the decompressed output.
                         out_low  <= dres[7:0];
                         out_cnt  <= 2'd2;
                         coef_cnt <= coef_cnt + 11'd1;
@@ -243,24 +287,17 @@ module tt_um_vinayaka_pqc_fo (
                             aux[7:0] <= ui_in;
                             aux_hi   <= 1'b1;
                         end else begin
+                            // F2: fold the old S_CLD setup into S_RXA.
+                            // aux_full uses the newly received high nibble,
+                            // avoiding the nonblocking-assignment old-value trap.
                             aux[11:8] <= ui_in[3:0];
-                            aux_hi     <= 1'b0;
-                            st         <= phase ? S_CLD : S_MSUB;
+                            aux_hi    <= 1'b0;
+
+                            rem   <= aux_full;
+                            scan  <= 11'd0;
+                            bitk  <= dunp;
+                            st    <= S_CMP;
                         end
-                    end
-
-                    S_MSUB: begin
-                        rem <= wmod;
-                        st  <= S_CLD;
-                    end
-
-                    S_CLD: begin
-                        if (phase)
-                            rem <= aux;
-                        scan   <= 11'd0;
-                        aux_hi <= 1'b0;
-                        bitk   <= dunp;   // dop special case removed (was 1 for phase-0 C2 masm)
-                        st     <= S_CMP;
                     end
 
                     S_CMP: begin
@@ -276,8 +313,8 @@ module tt_um_vinayaka_pqc_fo (
                     end
 
                     S_ACC: begin
-                        // masm/in_c2 branch removed: only the phase=1
-                        // mismatch-verification path remains here.
+                        // Core novelty retained: auxiliary-reference
+                        // coefficient comparison with sticky mismatch.
                         if (phase) begin
                             mismatch <= mismatch | (ycoef != cval);
                             coef_cnt <= coef_cnt + 11'd1;
@@ -307,6 +344,7 @@ module tt_um_vinayaka_pqc_fo (
                     end
 
                     default: st <= S_IDLE;
+
                 endcase
             end
         end
@@ -314,31 +352,21 @@ module tt_um_vinayaka_pqc_fo (
 
     wire busy = !(st == S_IDLE || st == S_DONE || st == S_RXC ||
                   (st == S_ACC2 && out_cnt != 0));
+
     wire out_valid = (st == S_ACC2) && (out_cnt != 0);
 
     wire done_fault = (coef_cnt != n_tot);
     wire done_match = (~mismatch) && (coef_cnt == n_tot);
 
-    wire [7:0] out_mux = (out_cnt == 2'd2) ? out_low : {4'd0, dres[11:8]};
+    wire [7:0] out_mux =
+        (out_cnt == 2'd2) ? out_low :
+                            {4'd0, dres[11:8]};
 
     assign uo_out  = (st == S_DONE) ? {6'd0, done_fault, done_match} :
                      (out_valid ? out_mux : 8'd0);
+
     assign uio_out = {((st == S_DONE) ? done_fault : 1'b0), busy, 6'd0};
     assign uio_oe  = 8'b1100_0000;
-
-    // OPT-DMASK, simplified: dop==dunp always now (special case removed),
-    // so dmask keys directly on the in_c2/pr tree that drives dunp.
-    reg [10:0] dmask;
-    always @(*) begin
-        if (!in_c2) begin
-            dmask = (pr == 2'd2) ? 11'h7FF : 11'h3FF;   // dunp = du (11 or 10)
-        end else begin
-            dmask = (pr == 2'd2) ? 11'h01F : 11'h00F;   // dunp = dv (5 or 4)
-        end
-    end
-
-    wire [11:0] cbase = {1'b0, scan} + {11'd0, aux_hi};
-    wire [10:0] cval  = cbase[10:0] & dmask;
 
     wire _unused = &{ena, uio_in[7:6], 1'b0};
 
