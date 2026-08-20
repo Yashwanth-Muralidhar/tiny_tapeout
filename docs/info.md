@@ -6,6 +6,10 @@ sections.
 You can also include images in this folder and reference them in the markdown. Each image must be less than
 512 kb in size, and the combined size of all images must be less than 1 MB.
 -->
+Credits  
+We gratefully acknowledge the Center of Excellence (CoE) in Integrated Circuits and Systems (ICAS) and the Department of Electronics and Communication Engineering (ECE) for providing the necessary resources and guidance.
+
+Special thanks to Dr. H V Ravish Aradhya (HoD–ECE), Dr. K R Usha Rani (Associate Dean–PG), Dr. K. S. Geetha (Vice Principal), and Dr. K. N. Subramanya (Principal) for their constant encouragement and support in facilitating this Tiny Tapeout SKY25A submission.
 
 ## How it works
 
@@ -72,7 +76,3 @@ make -B
 None. This project is a pure digital logic block; it communicates only over the standard Tiny Tapeout
 `ui_in`/`uo_out`/`uio_*` pins and needs no external hardware to operate.
 
-Credits  
-We gratefully acknowledge the Center of Excellence (CoE) in Integrated Circuits and Systems (ICAS) and the Department of Electronics and Communication Engineering (ECE) for providing the necessary resources and guidance.
-
-Special thanks to Dr. H V Ravish Aradhya (HoD–ECE), Dr. K R Usha Rani (Associate Dean–PG), Dr. K. S. Geetha (Vice Principal), and Dr. K. N. Subramanya (Principal) for their constant encouragement and support in facilitating this Tiny Tapeout SKY25A submission.
