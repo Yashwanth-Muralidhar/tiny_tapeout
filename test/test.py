@@ -98,7 +98,6 @@ async def wait_ready(dut, limit=3000):
 
 async def wait_rxa(dut, limit=3000):
     is_gl = os.getenv("GATES", "").lower() == "yes"
-
     if not is_gl:
         for _ in range(limit):
             if hasattr(dut.user_project, "st"):
@@ -108,14 +107,13 @@ async def wait_rxa(dut, limit=3000):
                 return
             await RisingEdge(dut.clk)
         raise AssertionError("Timeout waiting for S_RXA")
-
-    # GL mode: no internal FSM access. Wait for the public handshake
-    # condition used by the current gate-level protocol.
-    for _ in range(limit):
-        if not busy(dut):
-            return
-        await RisingEdge(dut.clk)
-    raise AssertionError("Timeout waiting for S_RXA (GL)")
+    else:
+        # GL mode: poll busy — DUT is busy until it reaches S_RXA
+        for _ in range(limit):
+            if not busy(dut):
+                return
+            await RisingEdge(dut.clk)
+        raise AssertionError("Timeout waiting for S_RXA (GL)")
 
 async def send_aux(dut, coeff):
     assert 0 <= coeff < Q
@@ -128,7 +126,10 @@ async def wait_done(dut, limit=200000):
     if not is_gl and hasattr(dut.user_project, "st"):
         if int(dut.user_project.st.value) == 12:
             return int(dut.uo_out.value) & 0x3
-    seen_processing = busy(dut)
+    # FIX: initialise seen_processing=True so wait_done does not require
+    # observing a busy=1 edge before it will latch a stable output.
+    # In GL mode the DUT may already be done before wait_done is called.
+    seen_processing = True
     stable = None
     for _ in range(limit):
         await RisingEdge(dut.clk)
@@ -138,7 +139,6 @@ async def wait_done(dut, limit=200000):
             if int(dut.user_project.st.value) == 12:
                 return v
         if b:
-            seen_processing = True
             stable = None
         elif seen_processing:
             if stable == v:
@@ -174,7 +174,7 @@ async def run_pass2(dut, param, seed, tamper_index=None):
     host_bits = 0
     coeff_idx = 0
     for byte in ciphertext:
-        # Drain any aux coefficients whose bits are already accumulated
+        # Drain aux coefficients whose bits are already accumulated
         while coeff_idx < p["n_tot"]:
             d = p["du"] if coeff_idx < p["split"] else p["dv"]
             if host_bits < d:
@@ -183,7 +183,7 @@ async def run_pass2(dut, param, seed, tamper_index=None):
             host_bits -= d
             await send_aux(dut, regenerated[coeff_idx])
             coeff_idx += 1
-        # FIX Bug 1: write the byte FIRST, then wait for ready
+        # FIX: write the byte FIRST, then wait — prevents S_RXA deadlock
         await pulse_wr(dut, byte)
         await wait_ready(dut)
         host_acc |= byte << host_bits
@@ -223,15 +223,17 @@ async def run_pass1(dut, param, seed):
             if not is_gl and hasattr(dut.user_project, "st"):
                 st = int(dut.user_project.st.value)
                 if st == 5:
-                    raise AssertionError(f"{p['name']} pass1: unexpected S_RXA request")
+                    raise AssertionError(
+                        f"{p['name']} pass1: unexpected S_RXA request"
+                    )
                 if not busy(dut):
                     if st == 10:  # S_ACC2, output pending
                         await pulse_rd(dut)
                         continue
                     return
             else:
-                # GL mode: no internal FSM access. Service pending output
-                # repeatedly until the public interface is genuinely idle.
+                # FIX: GL mode — only issue pulse_rd if uo_out has data,
+                # loop until truly idle rather than returning after one pulse
                 if not busy(dut):
                     v = int(dut.uo_out.value) & 0xFF
                     if v != 0:
