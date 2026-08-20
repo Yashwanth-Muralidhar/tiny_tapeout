@@ -108,19 +108,39 @@ async def send_aux(dut, coeff):
 async def wait_done(dut, limit=200000):
     seen_processing = False
     stable = None
+    last_st = None
+    last_busy = None
+    last_uo = None
+    cycles = 0
+
     for _ in range(limit):
         await RisingEdge(dut.clk)
+        cycles += 1
+
         b = busy(dut)
+        st = int(dut.user_project.st.value)
+        uo = int(dut.uo_out.value) & 0xFF
+
+        last_st = st
+        last_busy = b
+        last_uo = uo
+
         if b:
             seen_processing = True
             stable = None
             continue
+
         if seen_processing:
-            v = int(dut.uo_out.value) & 0x3
+            v = uo & 0x3
             if stable == v:
                 return v
             stable = v
-    raise AssertionError("Timeout waiting for DONE")
+
+    raise AssertionError(
+        f"Timeout waiting for DONE after {cycles} cycles: "
+        f"st={last_st} ({stname(dut)}), busy={last_busy}, "
+        f"uo_out=0x{last_uo:02x}"
+    )
 
 def make_case(param, seed, tamper_index=None):
     p = PARAMS[param]
@@ -232,6 +252,9 @@ async def run_pass1(dut, param, seed):
 
     await drain()
 
+    # At this point all ciphertext bytes have been sent and all observed
+    # S_RXA requests have been serviced.  Keep the final FSM state visible
+    # if completion fails.
     result = await wait_done(dut)
     expected_aux = p["n_tot"] - p["split"]
 
