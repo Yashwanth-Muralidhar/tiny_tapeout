@@ -20,9 +20,7 @@
   "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 5,
   "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 5,
 
-  "CTS_CLK_BUFFER_LIST": [
-    "sky130_fd_sc_hd__clkbuf_1"
-  ],
+  "CTS_CLK_BUFFER_LIST": ["sky130_fd_sc_hd__clkbuf_1"],
   "CTS_ROOT_BUFFER": "sky130_fd_sc_hd__clkbuf_1",
   "CTS_MAX_CAP": 6.0,
 
@@ -39,9 +37,7 @@
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.0,
   "GRT_RESIZER_HOLD_MAX_BUFFER_PERCENT": 15,
 
-  "RSZ_CORNERS": [
-    "nom_tt_025C_1v80"
-  ],
+  "RSZ_CORNERS": ["nom_tt_025C_1v80"],
 
   "RUN_LINTER": true,
   "RUN_YOSYS_EQY": false,
@@ -49,8 +45,13 @@
   "PDN_MULTILAYER": false,
   "RT_MAX_LAYER": "met4",
 
-  "FP_PDN_VOFFSET": 6.0,
-  "FP_PDN_HOFFSET": 6.0,
+  "FP_PDN_CORE_RING": true,
+  "FP_PDN_CORE_RING_VOFFSET": 2.0,
+  "FP_PDN_CORE_RING_HOFFSET": 2.0,
+  "FP_PDN_CORE_RING_VWIDTH": 1.6,
+  "FP_PDN_CORE_RING_HWIDTH": 1.6,
+  "FP_PDN_CORE_RING_VSPACING": 1.7,
+  "FP_PDN_CORE_RING_HSPACING": 1.7,
 
   "MAGIC_WRITE_LEF_PINONLY": true
 }
