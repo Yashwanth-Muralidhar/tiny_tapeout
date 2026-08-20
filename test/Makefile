@@ -15,6 +15,7 @@ VERILOG_SOURCES += $(PWD)/tb.v
 else
 # Gate level simulation:
 SIM_BUILD = sim_build/gl
+
 COMPILE_ARGS += -DGL_TEST
 COMPILE_ARGS += -DFUNCTIONAL
 COMPILE_ARGS += -DUSE_POWER_PINS
@@ -24,19 +25,17 @@ COMPILE_ARGS += -DUNIT_DELAY=\#1
 VERILOG_SOURCES += $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/primitives.v
 VERILOG_SOURCES += $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/sky130_fd_sc_hd.v
 
-# tt-gds-action copies the downloaded gate-level netlist here:
-#   cp tt_submission/*.v test/gate_level_netlist.v
+# tt-gds-action copies the gate-level netlist here.
 VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+
+# The gate-level test still uses tb as the simulation top.
+VERILOG_SOURCES += $(PWD)/tb.v
 endif
 
-# TOPLEVEL is the name of the toplevel module in your Verilog or VHDL file.
-# test.py accesses dut.user_project.st, so TOPLEVEL is the tb wrapper
-# (tb.v) that instantiates tt_um_vinayaka_pqc_fo AS "user_project" --
-# NOT the design module directly.
+# TOPLEVEL is the testbench wrapper.
 TOPLEVEL = tb
 
-# MODULE is the basename of the Python test file
+# MODULE is the basename of the Python test file.
 MODULE = test
 
-# include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim
