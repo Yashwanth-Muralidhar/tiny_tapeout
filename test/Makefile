@@ -20,12 +20,14 @@ COMPILE_ARGS += -DFUNCTIONAL
 COMPILE_ARGS += -DUSE_POWER_PINS
 COMPILE_ARGS += -DSIM
 COMPILE_ARGS += -DUNIT_DELAY=\#1
+
 VERILOG_SOURCES += $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/primitives.v
 VERILOG_SOURCES += $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/sky130_fd_sc_hd.v
-VERILOG_SOURCES += $(PWD)/../runs/wokwi/results/final/verilog/gl/tt_um_vinayaka_pqc_fo.v
-endif
 
-# Use VHDL_SOURCES for VHDL files
+# tt-gds-action copies the downloaded gate-level netlist here:
+#   cp tt_submission/*.v test/gate_level_netlist.v
+VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+endif
 
 # TOPLEVEL is the name of the toplevel module in your Verilog or VHDL file.
 # test.py accesses dut.user_project.st, so TOPLEVEL is the tb wrapper
