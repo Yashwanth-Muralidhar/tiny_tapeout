@@ -42,5 +42,7 @@
   "RUN_YOSYS_EQY": false,
 
   "PDN_MULTILAYER": false,
-  "RT_MAX_LAYER": "met4"
+  "RT_MAX_LAYER": "met4",
+
+  "MAGIC_WRITE_LEF_PINONLY": true
 }
