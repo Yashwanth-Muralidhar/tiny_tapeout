@@ -98,6 +98,7 @@ async def wait_ready(dut, limit=3000):
 
 async def wait_rxa(dut, limit=3000):
     is_gl = os.getenv("GATES", "").lower() == "yes"
+
     if not is_gl:
         for _ in range(limit):
             if hasattr(dut.user_project, "st"):
@@ -107,13 +108,14 @@ async def wait_rxa(dut, limit=3000):
                 return
             await RisingEdge(dut.clk)
         raise AssertionError("Timeout waiting for S_RXA")
-    else:
-        # FIX Bug 2: GL mode — poll busy until DUT reaches S_RXA (not-busy)
-        for _ in range(limit):
-            if not busy(dut):
-                return
-            await RisingEdge(dut.clk)
-        raise AssertionError("Timeout waiting for S_RXA (GL)")
+
+    # GL mode: no internal FSM access. Wait for the public handshake
+    # condition used by the current gate-level protocol.
+    for _ in range(limit):
+        if not busy(dut):
+            return
+        await RisingEdge(dut.clk)
+    raise AssertionError("Timeout waiting for S_RXA (GL)")
 
 async def send_aux(dut, coeff):
     assert 0 <= coeff < Q
@@ -228,7 +230,8 @@ async def run_pass1(dut, param, seed):
                         continue
                     return
             else:
-                # FIX Bug 3: GL mode — loop until truly idle, not just one pulse_rd
+                # GL mode: no internal FSM access. Service pending output
+                # repeatedly until the public interface is genuinely idle.
                 if not busy(dut):
                     v = int(dut.uo_out.value) & 0xFF
                     if v != 0:
