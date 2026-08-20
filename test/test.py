@@ -1,3 +1,9 @@
+# Auto-generated unified TinyTapeout regression testbench.
+# RTL mode may use the internal FSM for precise S_RXA synchronization.
+# Gate-level mode MUST use only top-level pins because synthesis may remove
+# the internal FSM register.
+
+import os
 import random
 import cocotb
 from cocotb.clock import Clock
@@ -47,8 +53,8 @@ def stname(dut):
     try:
         v = int(dut.user_project.st.value)
         return STATE_NAMES[v] if v < len(STATE_NAMES) else str(v)
-    except Exception as e:
-        return f"?({e})"
+    except Exception:
+        return "<GL/hidden>"
 
 
 def busy(dut):
@@ -98,13 +104,26 @@ async def wait_ready(dut, limit=3000):
     raise AssertionError(f"Timeout waiting for ready, stuck in st={stname(dut)}")
 
 async def wait_rxa(dut, limit=3000):
-    for _ in range(limit):
-        if int(dut.user_project.st.value) == 5:  # S_RXA
-            return
-        await RisingEdge(dut.clk)
-    raise AssertionError(
-        f"Timeout waiting for S_RXA, stuck in st={stname(dut)}"
-    )
+    # RTL: exact internal-state synchronization.
+    # GL: the internal FSM is not guaranteed to exist. The F2 host protocol
+    # deterministically requests aux immediately after the corresponding
+    # ciphertext coefficient has been consumed, so no hierarchical state
+    # access is permitted in GL mode.
+    is_gl = os.getenv("GATES", "").lower() == "yes"
+
+    if not is_gl:
+        for _ in range(limit):
+            if hasattr(dut.user_project, "st"):
+                if int(dut.user_project.st.value) == 5:  # S_RXA
+                    return
+            else:
+                # If a simulator hides the internal register, fall back to
+                # the GL-safe protocol rather than crashing.
+                return
+            await RisingEdge(dut.clk)
+        raise AssertionError("Timeout waiting for S_RXA")
+
+    return
 
 async def send_aux(dut, coeff):
     assert 0 <= coeff < Q
@@ -113,8 +132,11 @@ async def send_aux(dut, coeff):
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
 async def wait_done(dut, limit=200000):
-    if int(dut.user_project.st.value) == 12:  # DONE
-        return int(dut.uo_out.value) & 0x3
+    is_gl = os.getenv("GATES", "").lower() == "yes"
+
+    if not is_gl and hasattr(dut.user_project, "st"):
+        if int(dut.user_project.st.value) == 12:
+            return int(dut.uo_out.value) & 0x3
 
     seen_processing = busy(dut)
     stable = None
@@ -122,12 +144,12 @@ async def wait_done(dut, limit=200000):
     for _ in range(limit):
         await RisingEdge(dut.clk)
 
-        st = int(dut.user_project.st.value)
         b = busy(dut)
         v = int(dut.uo_out.value) & 0x3
 
-        if st == 12:  # DONE
-            return v
+        if not is_gl and hasattr(dut.user_project, "st"):
+            if int(dut.user_project.st.value) == 12:
+                return v
 
         if b:
             seen_processing = True
@@ -138,8 +160,7 @@ async def wait_done(dut, limit=200000):
             stable = v
 
     raise AssertionError(
-        f"Timeout waiting for DONE, st={int(dut.user_project.st.value)} "
-        f"({stname(dut)}), busy={busy(dut)}, "
+        f"Timeout waiting for DONE: busy={busy(dut)}, "
         f"uo_out=0x{int(dut.uo_out.value) & 0xff:02x}"
     )
 
@@ -223,18 +244,27 @@ async def run_pass1(dut, param, seed):
 
     async def drain():
         while True:
-            st = int(dut.user_project.st.value)
+            is_gl = os.getenv("GATES", "").lower() == "yes"
 
-            if st == 5:  # S_RXA
-                raise AssertionError(
-                    f"{p['name']} pass1: unexpected S_RXA request"
-                )
+            if not is_gl and hasattr(dut.user_project, "st"):
+                st = int(dut.user_project.st.value)
 
-            if not busy(dut):
-                if st == 10:  # S_ACC2, output pending
+                if st == 5:  # S_RXA
+                    raise AssertionError(
+                        f"{p['name']} pass1: unexpected S_RXA request"
+                    )
+
+                if not busy(dut):
+                    if st == 10:  # S_ACC2, output pending
+                        await pulse_rd(dut)
+                        continue
+                    return
+            else:
+                # GL: no internal FSM access. Service an observable pending
+                # output if the DUT is idle; otherwise wait for processing.
+                if not busy(dut):
                     await pulse_rd(dut)
-                    continue
-                return
+                    return
 
             await RisingEdge(dut.clk)
 
