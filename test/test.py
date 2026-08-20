@@ -41,14 +41,6 @@ def set_uio(dut, wr=0, start=0, rd=0, phase=0, param=0):
 def busy(dut):
     return (int(dut.uio_out.value) >> 6) & 1
 
-STATE_NAMES = ["IDLE","RXC","UNP","DEC","OUT","RXA","MSUB","CLD","CMP","ACC","ACC2","FIN","DONE"]
-
-def stname(dut):
-    try:
-        v = int(dut.user_project.st.value)
-        return STATE_NAMES[v] if v < len(STATE_NAMES) else str(v)
-    except Exception as e:
-        return f"?({e})"
 
 async def start_clock(dut):
     cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
@@ -93,11 +85,14 @@ async def wait_ready(dut, limit=3000):
     raise AssertionError(f"Timeout waiting for ready, stuck in st={stname(dut)}")
 
 async def wait_rxa(dut, limit=3000):
+    # Gate-level safe: do not access internal FSM state.
+    # The RXA request is represented by busy going low while the DUT
+    # waits for the auxiliary coefficient.
     for _ in range(limit):
-        if int(dut.user_project.st.value) == 5:
+        if not busy(dut):
             return
         await RisingEdge(dut.clk)
-    raise AssertionError(f"Timeout waiting for S_RXA, stuck in st={stname(dut)}")
+    raise AssertionError("Timeout waiting for RXA request")
 
 async def send_aux(dut, coeff):
     assert 0 <= coeff < Q
@@ -106,50 +101,24 @@ async def send_aux(dut, coeff):
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
 async def wait_done(dut, limit=200000):
-    # The caller may arrive here after drain() has already observed busy=0.
-    # In that case the DUT can already be in S_DONE, so do not require a
-    # second busy assertion before accepting the result.
-    if int(dut.user_project.st.value) == 12:
-        return int(dut.uo_out.value) & 0x3
-
-    seen_processing = busy(dut)
+    # Gate-level safe: completion is determined only from top-level pins.
+    # busy=0 indicates the core is no longer processing; uo_out[1:0]
+    # contains MATCH/FAULT.
     stable = None
-    last_st = None
-    last_busy = None
-    last_uo = None
-    cycles = 0
-
     for _ in range(limit):
         await RisingEdge(dut.clk)
-        cycles += 1
 
-        b = busy(dut)
-        st = int(dut.user_project.st.value)
-        uo = int(dut.uo_out.value) & 0xFF
-
-        last_st = st
-        last_busy = b
-        last_uo = uo
-
-        # DONE is the authoritative completion state.
-        if st == 12:
-            return uo & 0x3
-
-        if b:
-            seen_processing = True
-            stable = None
-            continue
-
-        if seen_processing:
-            v = uo & 0x3
+        if not busy(dut):
+            v = int(dut.uo_out.value) & 0x3
             if stable == v:
                 return v
             stable = v
+        else:
+            stable = None
 
     raise AssertionError(
-        f"Timeout waiting for DONE after {cycles} cycles: "
-        f"st={last_st} ({stname(dut)}), busy={last_busy}, "
-        f"uo_out=0x{last_uo:02x}"
+        f"Timeout waiting for DONE: busy={busy(dut)}, "
+        f"uo_out=0x{int(dut.uo_out.value) & 0xff:02x}"
     )
 
 def make_case(param, seed, tamper_index=None):
@@ -237,20 +206,11 @@ async def run_pass1(dut, param, seed):
     async def drain():
         nonlocal aux_count
         while True:
-            st = int(dut.user_project.st.value)
-
-            if st == 5:  # S_RXA
-                raise AssertionError(
-                    f"{p['name']} pass1: unexpected S_RXA request "
-                    f"(aux_count={aux_count})"
-                )
-
             if not busy(dut):
-                if st == 10:  # S_ACC2, output pending
-                    await pulse_rd(dut)
-                    continue
+                # No internal FSM state is visible in gate-level simulation.
+                # There are no phase-0 S_RXA requests in the verified RTL
+                # behavior, so simply return when the DUT is externally idle.
                 return
-
             await RisingEdge(dut.clk)
 
     for byte in ciphertext:
