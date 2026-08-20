@@ -106,7 +106,13 @@ async def send_aux(dut, coeff):
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
 async def wait_done(dut, limit=200000):
-    seen_processing = False
+    # The caller may arrive here after drain() has already observed busy=0.
+    # In that case the DUT can already be in S_DONE, so do not require a
+    # second busy assertion before accepting the result.
+    if int(dut.user_project.st.value) == 12:
+        return int(dut.uo_out.value) & 0x3
+
+    seen_processing = busy(dut)
     stable = None
     last_st = None
     last_busy = None
@@ -124,6 +130,10 @@ async def wait_done(dut, limit=200000):
         last_st = st
         last_busy = b
         last_uo = uo
+
+        # DONE is the authoritative completion state.
+        if st == 12:
+            return uo & 0x3
 
         if b:
             seen_processing = True
