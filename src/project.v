@@ -1,12 +1,7 @@
 `default_nettype none
- 
 
-// tt_um_vinayaka_pqc_fo_v7 -- BASE + OPT1/OPT7/OPT8 + OPT-DUNP + Candidate E
-//   Candidate E: dmask derived directly from (phase,in_c2,pr) selectors
-//                instead of a case(dop) decode. dop wire kept (used by bitk).
-//   UNVERIFIED (base OPT-DUNP has an open RXA regression). PPA experiment only.
- 
 
+// tt_um_vinayaka_pqc_fo_v7 -- BASE + OPT-DUNP (corrected)
 module tt_um_vinayaka_pqc_fo (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -17,17 +12,17 @@ module tt_um_vinayaka_pqc_fo (
     input  wire       clk,
     input  wire       rst_n
 );
- 
+
 
     localparam [11:0] Q = 12'd3329;
- 
+
 
     wire       wr_i    = uio_in[0];
     wire       start_i = uio_in[1];
     wire       rd_i    = uio_in[2];
     wire       phase_i = uio_in[3];
     wire [1:0] pr_i    = uio_in[5:4];
- 
+
 
     reg wr_q, start_q, rd_q;
     reg phase_r;
@@ -37,12 +32,12 @@ module tt_um_vinayaka_pqc_fo (
     wire wr_p    = wr_i    & ~wr_q;
     wire start_p = start_i & ~start_q;
     wire rd_p    = rd_i    & ~rd_q;
- 
+
 
     reg [3:0]  du, dv;
     reg [10:0] c1_len, cx_len;
     reg [10:0] n_tot;
- 
+
 
     always @(*) begin
         case (pr)
@@ -69,11 +64,11 @@ module tt_um_vinayaka_pqc_fo (
             end
         endcase
     end
- 
+
 
     (* fsm_encoding = "binary" *)
     reg [3:0] st;
- 
+
 
     localparam [3:0]
         S_IDLE = 4'd0,
@@ -88,7 +83,7 @@ module tt_um_vinayaka_pqc_fo (
         S_ACC  = 4'd9,
         S_ACC2 = 4'd10,
         S_DONE = 4'd12;
- 
+
 
     reg [22:0] acc;
     reg [11:0] rem;
@@ -105,17 +100,17 @@ module tt_um_vinayaka_pqc_fo (
     reg        aux_hi;
     reg [7:0]  masm;
     reg        in_c2;
- 
+
 
     wire [3:0] dunp = in_c2 ? dv : du;
     wire [3:0] dop  = (~phase & in_c2) ? 4'd1 : dunp;
- 
+
 
     reg [11:0] accsh;
     reg        rndb;
     reg [10:0] pres;
     reg [10:0] ynew;
- 
+
 
     always @(*) begin
         if (!in_c2) begin
@@ -144,19 +139,19 @@ module tt_um_vinayaka_pqc_fo (
             end
         end
     end
- 
+
 
     wire [11:0] dres = accsh + {11'd0, rndb};
- 
+
 
     wire [12:0] wsub = {1'b0, dres} - {1'b0, aux};
     wire [11:0] wmod = wsub[12] ? (wsub[11:0] + Q) : wsub[11:0];
- 
+
 
     wire [11:0] rem_shift = {rem[10:0], 1'b0};
     wire        ge        = (rem >= 12'd1665);
     wire [11:0] rem_next  = ge ? (rem_shift - Q) : rem_shift;
- 
+
 
     always @(posedge clk) begin
         if (!rst_n) begin
@@ -170,7 +165,7 @@ module tt_um_vinayaka_pqc_fo (
             wr_q    <= wr_i;
             start_q <= start_i;
             rd_q    <= rd_i;
- 
+
 
             if (start_p) begin
                 phase_r  <= phase_i;
@@ -196,7 +191,7 @@ module tt_um_vinayaka_pqc_fo (
                 case (st)
                     S_IDLE: begin
                     end
- 
+
 
                     S_RXC: if (wr_p) begin
                         buf_r    <= buf_r | ({10'd0, ui_in} << nbits);
@@ -204,12 +199,12 @@ module tt_um_vinayaka_pqc_fo (
                         byte_cnt <= byte_cnt + 11'd1;
                         st       <= S_UNP;
                     end
- 
+
 
                     S_UNP: begin
                         if (nbits >= {1'b0, dunp}) begin
                             ycoef <= ynew;
- 
+
 
                             case (dunp)
                                 4'd4:    buf_r <= {4'd0,  buf_r[17:4]};
@@ -217,10 +212,10 @@ module tt_um_vinayaka_pqc_fo (
                                 4'd10:   buf_r <= {10'd0, buf_r[17:10]};
                                 default: buf_r <= {11'd0, buf_r[17:11]};
                             endcase
- 
+
 
                             nbits <= nbits - {1'b0, dunp};
- 
+
 
                             if (phase) begin
                                 aux_hi <= 1'b0;
@@ -242,20 +237,20 @@ module tt_um_vinayaka_pqc_fo (
                             st <= S_RXC;
                         end
                     end
- 
+
 
                     S_DEC: begin
                         acc  <= {acc[21:0], 1'b0} +
                                 (scan[10] ? {11'd0, Q} : 23'd0);
                         scan <= {scan[9:0], 1'b0};
- 
+
 
                         if (bitk == dunp - 4'd1)
                             st <= S_OUT;
                         else
                             bitk <= bitk + 4'd1;
                     end
- 
+
 
                     S_OUT: begin
                         if (in_c2) begin
@@ -268,7 +263,7 @@ module tt_um_vinayaka_pqc_fo (
                             st       <= S_ACC;
                         end
                     end
- 
+
 
                     S_RXA: if (wr_p) begin
                         if (!aux_hi) begin
@@ -280,13 +275,13 @@ module tt_um_vinayaka_pqc_fo (
                             st         <= phase ? S_CLD : S_MSUB;
                         end
                     end
- 
+
 
                     S_MSUB: begin
                         rem <= wmod;
                         st  <= S_CLD;
                     end
- 
+
 
                     S_CLD: begin
                         if (phase)
@@ -296,11 +291,11 @@ module tt_um_vinayaka_pqc_fo (
                         bitk   <= dop;
                         st     <= S_CMP;
                     end
- 
+
 
                     S_CMP: begin
                         rem <= rem_next;
- 
+
 
                         if (bitk == 0) begin
                             aux_hi <= ge;
@@ -310,7 +305,7 @@ module tt_um_vinayaka_pqc_fo (
                             bitk <= bitk - 4'd1;
                         end
                     end
- 
+
 
                     S_ACC: begin
                         if (phase) begin
@@ -320,7 +315,7 @@ module tt_um_vinayaka_pqc_fo (
                         end else if (in_c2) begin
                             masm     <= {cval[0], masm[7:1]};
                             coef_cnt <= coef_cnt + 11'd1;
- 
+
 
                             if (coef_cnt[2:0] == 3'd7) begin
                                 out_cnt <= 2'd1;
@@ -332,7 +327,7 @@ module tt_um_vinayaka_pqc_fo (
                             st <= S_ACC2;
                         end
                     end
- 
+
 
                     S_ACC2: begin
                         if (out_cnt == 0) begin
@@ -353,57 +348,58 @@ module tt_um_vinayaka_pqc_fo (
                             endcase
                         end
                     end
- 
+
 
                     S_DONE: begin
                     end
- 
+
 
                     default: st <= S_IDLE;
                 endcase
             end
         end
     end
- 
+
 
     wire busy = !(st == S_IDLE || st == S_DONE || st == S_RXC ||
                   (st == S_ACC2 && out_cnt != 0));
     wire out_valid = (st == S_ACC2) && (out_cnt != 0);
- 
+
 
     wire done_fault = (coef_cnt != n_tot);
     wire done_match = (~mismatch) && (coef_cnt == n_tot);
- 
+
 
     wire [7:0] out_mux = (out_cnt == 2'd1) ? masm :
                          (out_cnt == 2'd2) ? out_low :
                                              {4'd0, dres[11:8]};
- 
+
 
     assign uo_out  = (st == S_DONE) ? {6'd0, done_fault, done_match} :
                      (out_valid ? out_mux : 8'd0);
     assign uio_out = {((st == S_DONE) ? done_fault : 1'b0), busy, 6'd0};
     assign uio_oe  = 8'b1100_0000;
- 
 
-    // Candidate E: dmask derived directly from (phase,in_c2,pr) selectors
-    // instead of case(dop). Equivalent to (2^dop - 1) for all reachable dop.
+
+    // OPT-DMASK: dmask expressed as the same in_c2/phase/pr decision
+    // tree that already drives dop/dunp, instead of a separate case(dop).
     reg [10:0] dmask;
     always @(*) begin
-        if (~phase & in_c2)
-            dmask = 11'h001;              // dop = 1
-        else if (!in_c2)
-            dmask = (pr == 2'd2) ? 11'h7FF : 11'h3FF;  // du=11 / du=10
-        else
-            dmask = (pr == 2'd2) ? 11'h01F : 11'h00F;  // dv=5  / dv=4
+        if (~phase & in_c2) begin
+            dmask = 11'h001;                     // dop == 1
+        end else if (!in_c2) begin
+            dmask = (pr == 2'd2) ? 11'h7FF : 11'h3FF;   // dunp = du (11 or 10)
+        end else begin
+            dmask = (pr == 2'd2) ? 11'h01F : 11'h00F;   // dunp = dv (5 or 4)
+        end
     end
- 
+
 
     wire [11:0] cbase = {1'b0, scan} + {11'd0, aux_hi};
     wire [10:0] cval  = cbase[10:0] & dmask;
- 
+
 
     wire _unused = &{ena, uio_in[7:6], 1'b0};
- 
+
 
 endmodule
