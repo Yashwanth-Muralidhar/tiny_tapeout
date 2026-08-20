@@ -91,10 +91,12 @@ async def pulse_wr(dut, value):
 
 
 async def pulse_rd(dut):
+    value = int(dut.uo_out.value) & 0xFF
     set_uio(dut, rd=1)
     await RisingEdge(dut.clk)
     set_uio(dut)
     await RisingEdge(dut.clk)
+    return value
 
 
 async def wait_ready(dut, limit=3000):
@@ -121,21 +123,11 @@ async def send_aux(dut, coeff):
 
 
 async def wait_done(dut, limit=200000):
-    seen_processing = False
-    stable = None
     for _ in range(limit):
+        if int(dut.user_project.st.value) == 12:  # S_DONE
+            return int(dut.uo_out.value) & 0x3
         await RisingEdge(dut.clk)
-        b = busy(dut)
-        if b:
-            seen_processing = True
-            stable = None
-            continue
-        if seen_processing:
-            v = int(dut.uo_out.value) & 0x3
-            if stable == v:
-                return v
-            stable = v
-    raise AssertionError("Timeout waiting for DONE")
+    raise AssertionError(f"Timeout waiting for DONE, stuck in st={stname(dut)}")
 
 
 def make_case(param, seed, tamper_index=None):
@@ -227,6 +219,12 @@ async def run_pass1(dut, param, seed):
     # EVERY coefficient in phase=0 (both c1 and c2 regions), not just c2.
     aux_idx = 0
 
+    # Each coefficient's S_OUT emits two bytes: out_low = dres[7:0], then
+    # {4'd0, dres[11:8]}. dres is the DUT's decompress(enc[i], d) result --
+    # capture both bytes and check the reconstructed 12-bit value against
+    # the golden decompress() so a wrong datapath actually fails the test.
+    read_bytes = []
+
     async def drain(byte_idx):
         """Service S_RXA (feed aux) and S_ACC2 (drain pending output)
         until the DUT is ready for the next ciphertext byte."""
@@ -242,7 +240,7 @@ async def run_pass1(dut, param, seed):
                 continue
             if not busy(dut):
                 if st == 10:  # S_ACC2, output pending
-                    await pulse_rd(dut)
+                    read_bytes.append(await pulse_rd(dut))
                     continue
                 return
             await RisingEdge(dut.clk)
@@ -260,6 +258,21 @@ async def run_pass1(dut, param, seed):
     )
     # pass-1 clean run should not raise FAULT (coef_cnt should reach n_tot)
     assert not (result & 2), f"{p['name']} pass1: unexpected FAULT"
+
+    # Verify the actual decompression output, not just "it finished".
+    assert len(read_bytes) == 2 * p["n_tot"], (
+        f"{p['name']} pass1: expected {2 * p['n_tot']} output bytes, "
+        f"got {len(read_bytes)}"
+    )
+    for i in range(p["n_tot"]):
+        d = p["du"] if i < p["split"] else p["dv"]
+        low, high_nib = read_bytes[2 * i], read_bytes[2 * i + 1]
+        got = low | ((high_nib & 0x0F) << 8)
+        expected = decompress(enc[i], d)
+        assert got == expected, (
+            f"{p['name']} pass1: coeff {i} decompress mismatch "
+            f"got={got} expected={expected} (enc={enc[i]}, d={d})"
+        )
 
 
 @cocotb.test()
