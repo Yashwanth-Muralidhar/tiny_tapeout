@@ -1,3 +1,4 @@
+import cocotb
 async def run_pass1(dut, param, seed):
     """Exercise the compression path (encapsulation side): feed random
     plaintext-domain coefficients through decompress-then-recompress,
