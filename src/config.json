@@ -8,12 +8,6 @@
   "FP_SIZING": "absolute",
   "DIE_AREA": "0 0 161.00 111.52",
   "FP_PIN_ORDER_CFG": "dir::pin_order.cfg",
-  "FP_IO_MODE": "1",
-  "FP_IO_MIN_DISTANCE": 3,
-  "FP_IO_VEXTEND": 2,
-  "FP_IO_HEXTEND": 2,
-  "FP_IO_VLENGTH": 2,
-  "FP_IO_HLENGTH": 2,
   "FP_CORE_UTIL": 45,
   "PL_TARGET_DENSITY_PCT": 50,
   "SYNTH_ABC_BUFFERING": 0,
@@ -43,5 +37,6 @@
   "RUN_LINTER": true,
   "RUN_YOSYS_EQY": false,
   "PDN_MULTILAYER": false,
-  "RT_MAX_LAYER": "met4"
+  "RT_MAX_LAYER": "met4",
+  "MAGIC_WRITE_LEF_PINONLY": true
 }
