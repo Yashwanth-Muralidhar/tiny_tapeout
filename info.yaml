@@ -1,7 +1,7 @@
 # Tiny Tapeout project information
 project:
   title:        "Fault-Aware Constant-Time FO Backend for ML-KEM"
-  author:       "H Vinayaka"
+  author:       "Yashwanth M ,Vijay Sudarshan B, Shylashree N, RV College of Engineering"
   discord:      ""
   description:  "Divider-free ML-KEM ciphertext codec and Fujisaki-Okamoto integrity checker for ML-KEM-512/768/1024"
   language:     "Verilog"
