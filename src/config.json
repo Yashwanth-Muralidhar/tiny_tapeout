@@ -1,42 +1,46 @@
 {
   "DESIGN_NAME": "tt_um_vinayaka_pqc_fo_v7",
-  "VERILOG_FILES": [
-    "dir::project.v"
-  ],
+  "VERILOG_FILES": ["dir::project.v"],
+
   "CLOCK_PERIOD": 20,
   "CLOCK_PORT": "clk",
+
   "FP_SIZING": "absolute",
   "DIE_AREA": "0 0 161.00 111.52",
-  "FP_PIN_ORDER_CFG": "dir::pin_order.cfg",
+
   "FP_CORE_UTIL": 45,
   "PL_TARGET_DENSITY_PCT": 50,
+
   "SYNTH_ABC_BUFFERING": 0,
   "SYNTH_STRATEGY": "AREA 0",
+
   "DESIGN_REPAIR_MAX_SLEW_PCT": 5,
   "DESIGN_REPAIR_MAX_CAP_PCT": 5,
   "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 5,
   "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 5,
-  "CTS_CLK_BUFFER_LIST": [
-    "sky130_fd_sc_hd__clkbuf_1"
-  ],
+
+  "CTS_CLK_BUFFER_LIST": ["sky130_fd_sc_hd__clkbuf_1"],
   "CTS_ROOT_BUFFER": "sky130_fd_sc_hd__clkbuf_1",
   "CTS_MAX_CAP": 6.0,
+
   "CTS_SINK_CLUSTERING_SIZE": 25,
   "CTS_SINK_CLUSTERING_MAX_DIAMETER": 200,
   "CTS_CLUSTER_SIZE": 25,
   "CTS_CLUSTER_DIAMETER": 200,
+
   "CTS_TOLERANCE": 100,
   "CTS_TARGET_SKEW": 200,
+
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.0,
   "PL_RESIZER_HOLD_MAX_BUFFER_PERCENT": 15,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.0,
   "GRT_RESIZER_HOLD_MAX_BUFFER_PERCENT": 15,
-  "RSZ_CORNERS": [
-    "nom_tt_025C_1v80"
-  ],
+
+  "RSZ_CORNERS": ["nom_tt_025C_1v80"],
+
   "RUN_LINTER": true,
   "RUN_YOSYS_EQY": false,
+
   "PDN_MULTILAYER": false,
-  "RT_MAX_LAYER": "met4",
-  "MAGIC_WRITE_LEF_PINONLY": true
+  "RT_MAX_LAYER": "met4"
 }
