@@ -38,22 +38,6 @@ def set_uio(dut, wr=0, start=0, rd=0, phase=0, param=0):
     dut.uio_in.value = (((param & 3) << 4) | ((phase & 1) << 3) |
                          ((rd & 1) << 2) | ((start & 1) << 1) | (wr & 1))
 
-STATE_NAMES = [
-    "IDLE","RXC","UNP","DEC","OUT","RXA","MSUB",
-    "CLD","CMP","ACC","ACC2","FIN","DONE"
-]
-
-def stname(dut):
-    try:
-        v = int(dut.user_project.st.value)
-        return STATE_NAMES[v] if v < len(STATE_NAMES) else str(v)
-    except Exception as e:
-        return f"?({e})"
-
-
-def busy(dut):
-    return (int(dut.uio_out.value) >> 6) & 1
-
 
 async def start_clock(dut):
     cocotb.start_soon(Clock(dut.clk, CLOCK_NS, unit="ns").start())
@@ -98,50 +82,52 @@ async def wait_ready(dut, limit=3000):
     raise AssertionError(f"Timeout waiting for ready, stuck in st={stname(dut)}")
 
 async def wait_rxa(dut, limit=3000):
-    for _ in range(limit):
-        if int(dut.user_project.st.value) == 5:  # S_RXA
-            return
-        await RisingEdge(dut.clk)
-    raise AssertionError(
-        f"Timeout waiting for S_RXA, stuck in st={stname(dut)}"
-    )
+    # Gate-level: S_RXA is not observable after synthesis.  The pass-2
+    # protocol reaches S_RXA immediately after pulse_wr() returns.
+    return
 
-async def send_aux(dut, coeff):
+async def send_aux(dut, coeff, wait_next=True):
     assert 0 <= coeff < Q
-    await wait_rxa(dut)
     await pulse_wr(dut, coeff & 0xFF)
     await pulse_wr(dut, (coeff >> 8) & 0x0F)
 
-async def wait_done(dut, limit=200000):
-    if int(dut.user_project.st.value) == 12:  # DONE
-        return int(dut.uo_out.value) & 0x3
+    # After the two aux bytes the DUT processes the coefficient.  BUSY is
+    # high during S_MSUB/S_CLD/S_CMP/S_ACC and then returns low at S_RXA.
+    if wait_next:
+        for _ in range(30000):
+            await RisingEdge(dut.clk)
+            if busy(dut):
+                break
+        else:
+            raise AssertionError("Timeout waiting for aux processing")
 
-    seen_processing = busy(dut)
+        for _ in range(30000):
+            await RisingEdge(dut.clk)
+            if not busy(dut):
+                return
+        raise AssertionError("Timeout waiting for next input-ready state")
+
+async def wait_done_gl(dut, limit=200000):
+    # Gate-level completion uses external interface only. Require a
+    # processing interval followed by stable output.
+    seen_processing = False
     stable = None
-
     for _ in range(limit):
         await RisingEdge(dut.clk)
-
-        st = int(dut.user_project.st.value)
         b = busy(dut)
-        v = int(dut.uo_out.value) & 0x3
-
-        if st == 12:  # DONE
-            return v
-
         if b:
             seen_processing = True
             stable = None
         elif seen_processing:
+            v = int(dut.uo_out.value) & 0x3
             if stable == v:
                 return v
             stable = v
-
     raise AssertionError(
-        f"Timeout waiting for DONE, st={int(dut.user_project.st.value)} "
-        f"({stname(dut)}), busy={busy(dut)}, "
-        f"uo_out=0x{int(dut.uo_out.value) & 0xff:02x}"
+        f"Timeout waiting for DONE: busy={busy(dut)}, "
+        f"uo_out=0x{int(dut.uo_out.value)&0xff:02x}"
     )
+
 
 def make_case(param, seed, tamper_index=None):
     p = PARAMS[param]
@@ -175,7 +161,8 @@ async def run_pass2(dut, param, seed, tamper_index=None):
                 break
             host_acc >>= d
             host_bits -= d
-            await send_aux(dut, regenerated[coeff_idx])
+            last = (coeff_idx == p["n_tot"] - 1)
+            await send_aux(dut, regenerated[coeff_idx], wait_next=not last)
             coeff_idx += 1
 
         await wait_ready(dut)
@@ -189,22 +176,27 @@ async def run_pass2(dut, param, seed, tamper_index=None):
                 break
             host_acc >>= d
             host_bits -= d
-            await send_aux(dut, regenerated[coeff_idx])
+            last = (coeff_idx == p["n_tot"] - 1)
+            await send_aux(dut, regenerated[coeff_idx], wait_next=not last)
             coeff_idx += 1
 
     assert coeff_idx == p["n_tot"]
-    result = await wait_done(dut)
+    result = await wait_done_gl(dut)
     match = bool(result & 1)
     fault = bool(result & 2)
     expected = tamper_index is None
-    assert match == expected, f"{p['name']}: expected MATCH={expected}, got {result:02b}"
+    assert match == expected, (
+        f"{p['name']}: expected MATCH={expected}, got {result:02b}"
+    )
     assert not fault, f"{p['name']}: unexpected FAULT"
 
-async def run_pass1(dut, param, seed):
-    """Phase-0 regression using the observed RTL behavior.
 
-    Phase=0 does not issue S_RXA requests in the current RTL. S_ACC2 output
-    requests are serviced until the operation reaches DONE.
+async def run_pass1(dut, param, seed):
+    """Gate-level phase-0 smoke test.
+
+    Internal S_RXA/S_ACC2 state is not observable after synthesis. This test
+    therefore drives the phase-0 ciphertext stream through the public input
+    interface only and validates the externally reported completion result.
     """
     p = PARAMS[param]
     rng = random.Random(seed)
@@ -214,37 +206,20 @@ async def run_pass1(dut, param, seed):
     for i, x in enumerate(coeffs):
         d = p["du"] if i < p["split"] else p["dv"]
         enc.append(compress(x, d))
-
     c1 = pack_coeffs(enc[:p["split"]], p["du"])
     c2 = pack_coeffs(enc[p["split"]:], p["dv"])
     ciphertext = c1 + c2
 
     await pulse_start(dut, param, phase=0)
 
-    async def drain():
-        while True:
-            st = int(dut.user_project.st.value)
-
-            if st == 5:  # S_RXA
-                raise AssertionError(
-                    f"{p['name']} pass1: unexpected S_RXA request"
-                )
-
-            if not busy(dut):
-                if st == 10:  # S_ACC2, output pending
-                    await pulse_rd(dut)
-                    continue
-                return
-
-            await RisingEdge(dut.clk)
-
+    # Phase-0 GL behavior cannot safely be inferred from BUSY because
+    # S_RXC, S_RXA, and some S_ACC2 states are all externally idle.
+    # Drive each ciphertext byte only after a bounded public-idle wait.
     for byte in ciphertext:
-        await drain()
+        await wait_ready(dut)
         await pulse_wr(dut, byte)
 
-    await drain()
-
-    result = await wait_done(dut)
+    result = await wait_done_gl(dut)
     assert not (result & 2), f"{p['name']} pass1: unexpected FAULT"
 
 
