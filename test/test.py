@@ -260,6 +260,7 @@ async def test_v8_mlkem1024_clean(dut):
 
 @cocotb.test()
 async def test_v8_mlkem512_tamper_each_boundary(dut):
+    await start_clock(dut)
     for idx in (0, 1, 511, 512, 513, 767):
         await run_pass2(dut, 0, 0x9999 + idx, tamper_index=idx)
         await reset_dut(dut)
